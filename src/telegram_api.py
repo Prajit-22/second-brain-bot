@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Set, Tuple
 # /ask some question  ->  ("ask", "some question"); tolerates /ask@MyBot and
 # multi-line arguments.
 _COMMAND_RE = re.compile(r"^/(\w+)(?:@\w+)?(?:\s+(.*))?$", re.S)
-_URL_RE = re.compile(r"https?://[^\s<>\"'()\[\],;!?]+", re.I)
+_URL_RE = re.compile(r"https?://[^\s<>\"'\[\],;!?]+", re.I)
 
 TELEGRAM_MAX_MESSAGE = 4096
 
@@ -83,8 +83,23 @@ def parse_command(text: str) -> Optional[Tuple[str, str]]:
 
 
 def find_urls(text: str) -> List[str]:
-    """HTTP(S) links in a message, with trailing punctuation stripped."""
-    return [url.rstrip(".,;:!?)\"'") for url in _URL_RE.findall(text)]
+    """HTTP(S) links in a message.
+
+    Trailing punctuation is stripped, and trailing brackets are dropped only
+    when they were never opened inside the URL - so "(see https://x.dev/a)"
+    loses its ")" but a Wikipedia link like ".../RAG_(retrieval)" keeps its
+    balanced pair.
+    """
+    urls = []
+    for candidate in _URL_RE.findall(text):
+        url = candidate.rstrip(".,;:!?\"'")
+        while url.endswith(")") and url.count(")") > url.count("("):
+            url = url[:-1]
+        while url.endswith("(") and url.count("(") > url.count(")"):
+            url = url[:-1]
+        if url:
+            urls.append(url)
+    return urls
 
 
 def is_authorized(chat_id: int, allowed: Optional[Set[int]]) -> bool:
