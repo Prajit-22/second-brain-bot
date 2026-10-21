@@ -1,11 +1,17 @@
 """Prompt construction for the Workers AI chat model. Pure functions so the
 exact wording the model sees is unit tested and reviewable."""
 
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 # Keep the LLM input comfortably inside small-model context windows.
 MAX_SUMMARY_INPUT_CHARS = 12000
 MAX_ANSWER_INPUT_CHARS = 6000
+MAX_HISTORY_TURNS = 6
+MAX_HISTORY_TURN_CHARS = 500
+
+# The answer model emits exactly this token when the saved notes do not
+# cover the question; brain.py then falls back to a labeled general answer.
+NO_MATCH_TOKEN = "NO_MATCH"
 
 SUMMARIZE_SYSTEM = (
     "You summarize notes saved in a personal second-brain app. "
@@ -18,8 +24,31 @@ SUMMARIZE_SYSTEM = (
 ANSWER_SYSTEM = (
     "You are the user's second brain. Answer ONLY from the numbered notes "
     "below, and cite the note numbers you used like [1] or [2]. If the notes "
-    "do not contain the answer, say you have nothing saved about it and "
-    "suggest what to save. Keep the answer under 200 words."
+    "do not contain the answer, reply with exactly " + NO_MATCH_TOKEN + " and "
+    "nothing else - a different step will answer from general knowledge. "
+    "Keep the answer under 200 words."
+)
+
+GENERAL_ANSWER_SYSTEM = (
+    "You are a helpful assistant inside a personal second-brain Telegram bot. "
+    "The user's saved notes did not cover this question, so answer from your "
+    "own general knowledge. Be direct and practical, under 150 words, plain "
+    "text, and say when you are unsure. Never pretend the answer came from "
+    "the user's notes."
+)
+
+BRAINSTORM_SYSTEM = (
+    "You are a brainstorming partner inside a personal second-brain app. "
+    "The user gives you a topic; you may also see related notes they saved. "
+    "Reply with 5-7 concrete, specific ideas or angles as a plain numbered "
+    "list - no preamble, no pep talk. When an idea builds on a saved note, "
+    "cite it like [1]."
+)
+
+DETAIL_SUMMARY_SYSTEM = (
+    "You summarize one saved note in a personal second-brain app. Reply with "
+    "a 2-3 sentence overview, then 3-6 bullet points covering the key facts, "
+    "decisions or steps. Stay faithful to the text; never invent details."
 )
 
 DIGEST_SYSTEM = (
@@ -36,7 +65,23 @@ def summarize_messages(text: str) -> List[Dict[str, str]]:
     ]
 
 
-def answer_messages(question: str, contexts: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
+def _format_history(history: Optional[Sequence[Dict[str, str]]]) -> str:
+    """Render the last few conversation turns as 'you: ...' / 'bot: ...'
+    lines so follow-up questions ('and the second one?') make sense."""
+    if not history:
+        return ""
+    lines = []
+    for turn in history[-MAX_HISTORY_TURNS:]:
+        speaker = "you" if turn.get("role") == "user" else "bot"
+        text = " ".join((turn.get("text") or "").split())[:MAX_HISTORY_TURN_CHARS]
+        if text:
+            lines.append("{speaker}: {text}".format(speaker=speaker, text=text))
+    if not lines:
+        return ""
+    return "Recent conversation:\n" + "\n".join(lines) + "\n\n"
+
+
+def _numbered_notes(contexts: Sequence[Dict[str, str]]) -> str:
     """contexts: dicts with title/url/text, already ranked best-first."""
     blocks = []
     budget = MAX_ANSWER_INPUT_CHARS
@@ -49,10 +94,60 @@ def answer_messages(question: str, contexts: Sequence[Dict[str, str]]) -> List[D
         blocks.append(block)
         if budget <= 0:
             break
-    notes = "\n\n".join(blocks) if blocks else "(nothing saved yet)"
-    user = "Notes:\n{notes}\n\nQuestion: {question}".format(notes=notes, question=question)
+    return "\n\n".join(blocks) if blocks else "(nothing saved yet)"
+
+
+def answer_messages(
+    question: str,
+    contexts: Sequence[Dict[str, str]],
+    history: Optional[Sequence[Dict[str, str]]] = None,
+) -> List[Dict[str, str]]:
+    user = "{history}Notes:\n{notes}\n\nQuestion: {question}".format(
+        history=_format_history(history),
+        notes=_numbered_notes(contexts),
+        question=question,
+    )
     return [
         {"role": "system", "content": ANSWER_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+
+
+def general_answer_messages(
+    question: str,
+    history: Optional[Sequence[Dict[str, str]]] = None,
+) -> List[Dict[str, str]]:
+    user = "{history}Question: {question}".format(
+        history=_format_history(history), question=question
+    )
+    return [
+        {"role": "system", "content": GENERAL_ANSWER_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+
+
+def brainstorm_messages(
+    topic: str,
+    contexts: Sequence[Dict[str, str]],
+    history: Optional[Sequence[Dict[str, str]]] = None,
+) -> List[Dict[str, str]]:
+    user = "{history}Related saved notes:\n{notes}\n\nTopic: {topic}".format(
+        history=_format_history(history),
+        notes=_numbered_notes(contexts),
+        topic=topic,
+    )
+    return [
+        {"role": "system", "content": BRAINSTORM_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+
+
+def detail_summary_messages(title: str, content: str) -> List[Dict[str, str]]:
+    user = "Title: {title}\n\n{text}".format(
+        title=title or "note", text=content[:MAX_SUMMARY_INPUT_CHARS]
+    )
+    return [
+        {"role": "system", "content": DETAIL_SUMMARY_SYSTEM},
         {"role": "user", "content": user},
     ]
 
