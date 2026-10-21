@@ -1,5 +1,5 @@
 -- Second-brain bot schema (D1 / SQLite). Apply once after `wrangler d1 create`:
---   npx wrangler d1 execute second-brain-db --file=schema.sql
+--   npx wrangler d1 execute second-brain-db --remote --file=schema.sql
 
 -- One row per saved thing (a note, a link, a voice-note transcript).
 CREATE TABLE IF NOT EXISTS items (
