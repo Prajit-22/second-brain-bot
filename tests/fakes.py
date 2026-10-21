@@ -113,6 +113,16 @@ class FakeStore:
             out.append({"id": cid, "text": chunk["text"], "title": item["title"], "url": item["url"]})
         return out
 
+    async def delete_item(self, item_id):
+        for i, item in enumerate(self.items):
+            if item["id"] == item_id:
+                doomed = [cid for cid, c in self.chunks.items() if c["item_id"] == item_id]
+                for cid in doomed:
+                    del self.chunks[cid]
+                del self.items[i]
+                return {"id": item["id"], "title": item["title"], "chunks_removed": len(doomed)}
+        return None
+
     async def recent_items(self, limit=10):
         return list(reversed(self.items))[:limit]
 
