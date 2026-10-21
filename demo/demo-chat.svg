@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="2208" viewBox="0 0 880 2208" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+<rect width="880" height="2208" fill="#0e1621"/>
+<rect width="880" height="92" fill="#17212b"/>
+<circle cx="52" cy="44" r="24" fill="#f6821f"/>
+<text x="43" y="53" font-size="24" font-weight="700" fill="#0e1621">sb</text>
+<text x="96" y="48" font-size="34" font-weight="700" fill="#ffffff">second brain</text>
+<text x="96" y="76" font-size="20" fill="#7f8b99">bot - self-hosted on my own Cloudflare account</text>
+<rect x="148" y="122" width="706" height="100" rx="16" fill="#2b5278"/>
+<text x="172" y="160" font-size="24" fill="#ffffff">RAG notes: hybrid retrieval = BM25 + vector search</text>
+<text x="172" y="198" font-size="24" fill="#ffffff">merged with RRF (k=60)</text>
+<rect x="26" y="246" width="693" height="290" rx="16" fill="#182533"/>
+<text x="50" y="284" font-size="24" fill="#ffffff">Saved as #1: RAG notes: hybrid retrieval = BM25 +</text>
+<text x="50" y="322" font-size="24" fill="#ffffff">vector search merged wi</text>
+<text x="50" y="360" font-size="24" fill="#ffffff"></text>
+<text x="50" y="398" font-size="24" fill="#ffffff">Summary: RAG notes: hybrid retrieval = BM25 +</text>
+<text x="50" y="436" font-size="24" fill="#ffffff">vector search merged with RRF (k=60)</text>
+<text x="50" y="474" font-size="24" fill="#ffffff"></text>
+<text x="50" y="512" font-size="24" fill="#ffffff">(1 chunk(s) indexed - ask me anything with /ask)</text>
+<rect x="31" y="560" width="823" height="100" rx="16" fill="#2b5278"/>
+<text x="55" y="598" font-size="24" fill="#ffffff">must read</text>
+<text x="55" y="636" font-size="24" fill="#ffffff">https://developers.cloudflare.com/workers/languages/python/</text>
+<rect x="26" y="684" width="823" height="290" rx="16" fill="#182533"/>
+<text x="50" y="722" font-size="24" fill="#ffffff">Saved as #2: Cloudflare Python Workers docs</text>
+<text x="50" y="760" font-size="24" fill="#ffffff"></text>
+<text x="50" y="798" font-size="24" fill="#ffffff">Summary: must read</text>
+<text x="50" y="836" font-size="24" fill="#ffffff">https://developers.cloudflare.com/workers/languages/python/</text>
+<text x="50" y="874" font-size="24" fill="#ffffff">Python Workers run FastAPI-style Python on Cloudfl</text>
+<text x="50" y="912" font-size="24" fill="#ffffff"></text>
+<text x="50" y="950" font-size="24" fill="#ffffff">(1 chunk(s) indexed - ask me anything with /ask)</text>
+<rect x="278" y="998" width="576" height="62" rx="16" fill="#2b5278"/>
+<text x="302" y="1036" font-size="24" fill="#ffffff">[voice note] idea: add a /digest command</text>
+<rect x="26" y="1084" width="693" height="328" rx="16" fill="#182533"/>
+<text x="50" y="1122" font-size="24" fill="#ffffff">Saved as #3: remember to review the ragkit hybrid</text>
+<text x="50" y="1160" font-size="24" fill="#ffffff">retrieval notes before</text>
+<text x="50" y="1198" font-size="24" fill="#ffffff"></text>
+<text x="50" y="1236" font-size="24" fill="#ffffff">Summary: idea: add a /digest command remember to</text>
+<text x="50" y="1274" font-size="24" fill="#ffffff">review the ragkit hybrid retrieval notes before</text>
+<text x="50" y="1312" font-size="24" fill="#ffffff">the interview</text>
+<text x="50" y="1350" font-size="24" fill="#ffffff"></text>
+<text x="50" y="1388" font-size="24" fill="#ffffff">(1 chunk(s) indexed - ask me anything with /ask)</text>
+<rect x="148" y="1436" width="706" height="100" rx="16" fill="#2b5278"/>
+<text x="172" y="1474" font-size="24" fill="#ffffff">RAG notes: hybrid retrieval = BM25 + vector search</text>
+<text x="172" y="1512" font-size="24" fill="#ffffff">merged with RRF (k=60)</text>
+<rect x="26" y="1560" width="706" height="100" rx="16" fill="#182533"/>
+<text x="50" y="1598" font-size="24" fill="#ffffff">Already saved as #1: RAG notes: hybrid retrieval =</text>
+<text x="50" y="1636" font-size="24" fill="#ffffff">BM25 + vector search merged wi</text>
+<rect x="330" y="1684" width="524" height="62" rx="16" fill="#2b5278"/>
+<text x="354" y="1722" font-size="24" fill="#ffffff">/ask how does hybrid retrieval work?</text>
+<rect x="26" y="1770" width="706" height="366" rx="16" fill="#182533"/>
+<text x="50" y="1808" font-size="24" fill="#ffffff">Based on your saved notes, retrieval combines</text>
+<text x="50" y="1846" font-size="24" fill="#ffffff">keyword and vector search [1].</text>
+<text x="50" y="1884" font-size="24" fill="#ffffff"></text>
+<text x="50" y="1922" font-size="24" fill="#ffffff">Sources:</text>
+<text x="50" y="1960" font-size="24" fill="#ffffff">[1] RAG notes: hybrid retrieval = BM25 + vector</text>
+<text x="50" y="1998" font-size="24" fill="#ffffff">search merged wi</text>
+<text x="50" y="2036" font-size="24" fill="#ffffff">[2] remember to review the ragkit hybrid retrieval</text>
+<text x="50" y="2074" font-size="24" fill="#ffffff">notes before</text>
+<text x="50" y="2112" font-size="24" fill="#ffffff">[3] Cloudflare Python Workers docs</text>
+</svg>
