@@ -1,0 +1,2 @@
+# Local tests + demo only. The Worker itself has no pip dependencies.
+pytest>=8.0
