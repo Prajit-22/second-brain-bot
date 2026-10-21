@@ -51,15 +51,35 @@ class Default(WorkerEntrypoint):
         if not verify_secret(provided, self.env.TELEGRAM_WEBHOOK_SECRET):
             return Response("forbidden", status=403)
 
-        body = (await request.json()).to_py()
-        update = parse_update(body)
+        try:
+            body = (await request.json()).to_py()
+        except Exception:
+            # Not valid JSON; tell Telegram it was accepted so it does not
+            # keep retrying a payload that will never parse.
+            return Response("ok")
+        update = parse_update(body) if isinstance(body, dict) else None
         if update is None:
             return Response("ok")
 
         # Ack immediately (Telegram retries slow webhooks) and finish the AI
         # work in the background; replies go out via sendMessage.
-        self.ctx.waitUntil(self._handle(update))
+        self.ctx.waitUntil(self._guarded(update))
         return Response("ok")
+
+    async def _guarded(self, update):
+        """waitUntil failures are otherwise silent - log the error and tell
+        the user their message did not land instead of leaving them hanging."""
+        try:
+            await self._handle(update)
+        except Exception as exc:
+            print("handle_update failed: %r" % (exc,))
+            try:
+                await self._send(
+                    update.chat_id,
+                    "Something went wrong on my end while handling that - please try again.",
+                )
+            except Exception:
+                pass
 
     async def _handle(self, update):
         allowed = {
