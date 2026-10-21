@@ -22,7 +22,7 @@ binding = "VECTORIZE"
 index_name = "second-brain-chunks"
 
 [vars]
-LLM_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+LLM_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
 EMBED_MODEL = "@cf/baai/bge-base-en-v1.5"
 WHISPER_MODEL = "@cf/openai/whisper"
 # Comma-separated Telegram chat ids that may use the bot (recommended!).
