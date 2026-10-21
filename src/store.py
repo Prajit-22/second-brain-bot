@@ -15,6 +15,17 @@ DEFAULT_EMBED_MODEL = "@cf/baai/bge-base-en-v1.5"  # 768-dim vectors
 DEFAULT_WHISPER_MODEL = "@cf/openai/whisper"
 
 
+def _clean_summary(text: str) -> str:
+    """Models sometimes prepend 'Here's a 2-3 sentence summary:'-style
+    filler despite the prompt. Strip a leading preamble line if present."""
+    import re
+
+    cleaned = text.strip().strip('"')
+    return re.sub(
+        r"^(here(?:'s| is)(?: a)?[^\n:]*:\s*)+", "", cleaned, flags=re.IGNORECASE
+    ).strip()
+
+
 def _py(value):
     """Convert a Pyodide JsProxy into a native Python object when needed.
     Plain Python objects (as in tests/demo) pass straight through."""
@@ -46,7 +57,7 @@ class BrainStore:
     async def summarize(self, text: str) -> str:
         import prompts  # local import keeps this module dependency-light
 
-        return await self.chat(prompts.summarize_messages(text))
+        return _clean_summary(await self.chat(prompts.summarize_messages(text)))
 
     async def transcribe(self, audio: bytes) -> str:
         """Whisper wants the audio as an array of byte values."""
