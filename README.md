@@ -16,6 +16,7 @@ Forward it anything - text, links, voice notes - and it stores, transcribes and 
 | the same thing twice | detects the duplicate (sha256) instead of saving again |
 | `/ask <question>` | hybrid search over your notes, answer with numbered citations |
 | `/recent` `/digest` `/stats` | browse, get an AI digest, see counts |
+| `/forget <id>` | deletes a saved item for good - item, chunks and embeddings |
 
 ## Architecture
 
@@ -48,7 +49,7 @@ npx wrangler login
 ```powershell
 npx wrangler d1 create second-brain-db
 # copy the printed database_id into wrangler.toml (database_id = "...")
-npx wrangler d1 execute second-brain-db --file=schema.sql
+npx wrangler d1 execute second-brain-db --remote --file=schema.sql
 npx wrangler vectorize create second-brain-chunks --dimensions=768 --metric=cosine
 ```
 
@@ -93,7 +94,7 @@ No Cloudflare account needed for the tests or the demo - the bot's logic is plai
 
 ```powershell
 pip install -r requirements-dev.txt
-python -m pytest tests/ -v          # 69 unit tests
+python -m pytest tests/ -v          # 79 unit tests
 python demo/demo_local.py           # end-to-end demo with in-memory fakes
 ```
 
@@ -109,7 +110,7 @@ src/
   retrieval.py     chunking, tokenizer, FTS5 query building, RRF merge, HTML -> text (pure)
   prompts.py       system/user prompt builders (pure)
   telegram_api.py  update parsing, commands, auth, message splitting (pure)
-tests/             69 unit tests + in-memory fakes
+tests/             79 unit tests + in-memory fakes
 demo/demo_local.py end-to-end demo harness (prints the simulated chat above)
 schema.sql         D1 schema (items, chunks, FTS5)
 wrangler.toml      bindings + model config
@@ -121,4 +122,4 @@ wrangler.toml      bindings + model config
 - **Why D1 FTS5 instead of a second service?** SQLite ships `bm25()` for free, colocated with the metadata, one `schema.sql` to understand.
 - **Why acknowledge the webhook instantly?** Telegram retries slow webhooks, which would double-save notes. `ctx.waitUntil` finishes the AI work after the 200, replies go out via the Bot API.
 - **Why a webhook secret + chat allow-list?** The worker URL is public; `X-Telegram-Bot-Api-Secret-Token` proves the POST came from Telegram, and `ALLOWED_CHAT_IDS` makes the bot answer only you.
-- **Why is everything pure except `entry.py`/`store.py`?** So 69 unit tests and the demo exercise the exact production logic with no Workers runtime - and every line stays explainable.
+- **Why is everything pure except `entry.py`/`store.py`?** So 79 unit tests and the demo exercise the exact production logic with no Workers runtime - and every line stays explainable.
