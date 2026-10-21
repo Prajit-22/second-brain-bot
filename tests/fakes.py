@@ -126,14 +126,15 @@ class FakeStore:
         scored.sort(key=lambda kv: (-kv[1], kv[0]))
         return [cid for cid, _ in scored[:limit]]
 
-    async def vector_search(self, vector, limit=25) -> List[str]:
+    async def vector_search(self, vector, limit=25):
         scored = sorted(
             self.chunks.values(),
             key=lambda c: _cosine(vector, c["vector"]),
             reverse=True,
         )
-        # Real Vectorize returns the topK nearest neighbours unconditionally.
-        return [c["id"] for c in scored[:limit]]
+        # Real Vectorize returns the topK nearest neighbours unconditionally,
+        # each with its similarity score.
+        return [(c["id"], _cosine(vector, c["vector"])) for c in scored[:limit]]
 
     async def get_chunks(self, chunk_ids) -> List[Dict[str, str]]:
         out = []
