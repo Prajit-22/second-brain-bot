@@ -35,15 +35,17 @@ GetFileFn = Callable[[str], Awaitable[Optional[bytes]]]
 
 
 def _short_title(text: str, limit: int = 60) -> str:
-    title = " ".join(text.split())[:limit].strip()
-    return title if title else "note"
+    title = " ".join(text.split())
+    if len(title) <= limit:
+        return title if title else "note"
+    cut = title[:limit].rsplit(" ", 1)[0].rstrip(" ,;:-")
+    return (cut + "...") if cut else "note"
 
 
 def format_saved_reply(item_id: int, title: str, summary: str, n_chunks: int) -> str:
-    return (
-        "Saved as #{id}: {title}\n\n{summary}\n\n"
-        "({n} chunk(s) indexed - ask me anything with /ask)"
-    ).format(id=item_id, title=title, summary=summary, n=n_chunks)
+    return "Saved #{id}: {title}\n\n{summary}\n\nAsk me anything with /ask.".format(
+        id=item_id, title=title, summary=summary
+    )
 
 
 def format_answer_reply(answer: str, contexts: List[Dict[str, str]]) -> str:
