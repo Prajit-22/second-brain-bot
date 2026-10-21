@@ -133,8 +133,10 @@ class TestAsk:
         reply = sender.sent[-1][1]
         assert reply.startswith("Not from your notes")
         assert "Paris" in reply
-        # Two model calls: the grounded attempt said NO_MATCH, then general.
-        assert len(store.chat_calls) == 2
+        # The relevance threshold filters the unrelated note before the
+        # grounded attempt even runs, so only the general-answer call happens
+        # (no NO_MATCH round-trip through the model).
+        assert len(store.chat_calls) == 1
 
     @pytest.mark.asyncio
     async def test_ask_records_conversation_turns(self):
@@ -361,3 +363,113 @@ class TestWeb:
         brain, _, sender = make_brain(web_lookup_fn=fake_web_lookup)
         assert await brain.handle_update(text_update("/web")) == "web-empty"
         assert "Usage" in sender.sent[-1][1]
+
+
+class TestQuestionRouting:
+    @pytest.mark.asyncio
+    async def test_plain_question_is_answered_not_saved(self):
+        brain, store, sender = make_brain()
+        action = await brain.handle_update(text_update("who is the prime minister of india?"))
+        assert action == "answered-general"
+        assert store.items == [], "a question must not become a saved note"
+        assert sender.sent[-1][1].startswith("Not from your notes")
+
+    @pytest.mark.asyncio
+    async def test_question_word_without_question_mark(self):
+        brain, store, _ = make_brain()
+        action = await brain.handle_update(text_update("what is the capital of France"))
+        assert action == "answered-general"
+        assert store.items == []
+
+    @pytest.mark.asyncio
+    async def test_hinglish_question_word_is_answered_not_saved(self):
+        brain, store, _ = make_brain()
+        action = await brain.handle_update(text_update("kya kal launch hai"))
+        assert action == "answered-general"
+        assert store.items == []
+
+    @pytest.mark.asyncio
+    async def test_routed_question_records_conversation_turns(self):
+        brain, store, _ = make_brain()
+        await brain.handle_update(text_update("who is the prime minister of india?"))
+        assert [t["role"] for t in store.turns] == ["user", "assistant"]
+
+    @pytest.mark.asyncio
+    async def test_forwarded_question_still_saves(self):
+        brain, store, _ = make_brain()
+        update = Update(
+            update_id=1, chat_id=CHAT, kind="text",
+            text="who is the prime minister of india?", is_forward=True,
+        )
+        action = await brain.handle_update(update)
+        assert action == "saved"
+        assert len(store.items) == 1
+
+    @pytest.mark.asyncio
+    async def test_question_with_link_still_saves(self):
+        brain, store, _ = make_brain()
+        action = await brain.handle_update(
+            text_update("what does this mean? https://developers.cloudflare.com/workers/languages/python/")
+        )
+        assert action == "saved"
+        assert store.items[0]["kind"] == "link"
+
+    @pytest.mark.asyncio
+    async def test_statement_about_a_question_still_saves(self):
+        brain, store, _ = make_brain()
+        action = await brain.handle_update(text_update("prime minister speech notes from today"))
+        assert action == "saved"
+        assert len(store.items) == 1
+
+
+class TestRelevanceThreshold:
+    @staticmethod
+    async def _save_stray_question_note(brain):
+        """Simulates the pre-fix bug: a plain question got saved as a note.
+        (A forwarded question still saves, which is exactly the documented
+        escape hatch, so it doubles as the test fixture.)"""
+        update = Update(
+            update_id=2, chat_id=CHAT, kind="text",
+            text="Who is the prime minister of india?", is_forward=True,
+        )
+        assert await brain.handle_update(update) == "saved"
+
+    @pytest.mark.asyncio
+    async def test_stray_note_not_cited_in_ask(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update(
+            "Meeting with Rahul: launch is Friday, we still need the pricing page and a demo video."
+        ))
+        await self._save_stray_question_note(brain)
+        action = await brain.handle_update(
+            text_update("/ask what did Rahul and I decide about the launch?")
+        )
+        assert action == "answered"
+        reply = sender.sent[-1][1]
+        assert "Meeting with Rahul" in reply
+        assert "prime minister" not in reply.lower()
+
+    @pytest.mark.asyncio
+    async def test_stray_note_not_cited_in_brainstorm(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update(
+            "Idea: build a Cloudflare Worker that rotates between free LLM APIs so apps never hit a 429."
+        ))
+        await self._save_stray_question_note(brain)
+        action = await brain.handle_update(
+            text_update("/brainstorm launch ideas for the Worker project")
+        )
+        assert action == "brainstormed"
+        reply = sender.sent[-1][1]
+        assert "Sources:" in reply
+        assert "prime minister" not in reply.lower()
+
+    @pytest.mark.asyncio
+    async def test_only_stray_notes_means_brainstorm_without_sources(self):
+        brain, store, sender = make_brain()
+        await self._save_stray_question_note(brain)
+        action = await brain.handle_update(
+            text_update("/brainstorm launch ideas for the Worker project")
+        )
+        assert action == "brainstormed"
+        assert "Sources:" not in sender.sent[-1][1]
