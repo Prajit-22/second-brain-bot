@@ -1,6 +1,6 @@
 import pytest
 
-from brain import Brain, HELP_TEXT
+from brain import Brain, HELP_TEXT, format_answer_reply
 from fakes import FakeSender, FakeStore, fake_fetch_url, fake_get_file
 from telegram_api import Update
 
@@ -135,6 +135,69 @@ class TestAsk:
         # FakeStore ranked both ways; rrf_merge combined them without error
         # and an answer went out.
         assert any("Sources:" in text for _, text in _.sent)
+
+
+class TestFormatAnswerReply:
+    def test_duplicate_item_chunks_group_their_numbers(self):
+        # Two chunks from the same item must not produce a Sources list that
+        # skips the number the model cited.
+        contexts = [
+            {"title": "RAG notes", "text": "chunk one"},
+            {"title": "RAG notes", "text": "chunk two"},
+            {"title": "Deploy notes", "text": "chunk three"},
+        ]
+        reply = format_answer_reply("the answer [2]", contexts)
+        assert "[1, 2] RAG notes" in reply
+        assert "[3] Deploy notes" in reply
+
+    def test_distinct_sources_keep_plain_numbering(self):
+        contexts = [
+            {"title": "A", "text": "x"},
+            {"url": "https://a.dev/y", "text": "y"},
+        ]
+        reply = format_answer_reply("answer", contexts)
+        assert "[1] A" in reply and "[2] https://a.dev/y" in reply
+
+    def test_no_contexts_returns_answer_untouched(self):
+        assert format_answer_reply("answer", []) == "answer"
+
+
+class TestForget:
+    @pytest.mark.asyncio
+    async def test_forget_removes_item_and_its_chunks(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("temporary note about nothing"))
+        assert store.items and store.chunks
+        action = await brain.handle_update(text_update("/forget 1"))
+        assert action == "forgot"
+        assert store.items == [] and store.chunks == {}
+        assert "Forgot #1" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_forgotten_item_no_longer_answerable(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("secret launch codes are blue"))
+        await brain.handle_update(text_update("/forget 1"))
+        action = await brain.handle_update(text_update("/ask what are the launch codes?"))
+        assert action == "ask-no-results"
+
+    @pytest.mark.asyncio
+    async def test_forget_unknown_id(self):
+        brain, store, sender = make_brain()
+        action = await brain.handle_update(text_update("/forget 99"))
+        assert action == "forget-missing"
+        assert "No item #99" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_forget_without_id_shows_usage(self):
+        brain, store, sender = make_brain()
+        action = await brain.handle_update(text_update("/forget"))
+        assert action == "forget-invalid"
+        assert "Usage" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_help_mentions_forget(self):
+        assert "/forget" in HELP_TEXT
 
 
 class TestBrowse:
