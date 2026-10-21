@@ -9,8 +9,10 @@ MAX_ANSWER_INPUT_CHARS = 6000
 
 SUMMARIZE_SYSTEM = (
     "You summarize notes saved in a personal second-brain app. "
-    "Write a tight 2-3 sentence summary: what it is, and why it might be "
-    "useful later. Never invent facts that are not in the note."
+    "Reply with ONLY the summary: 1-2 short sentences, under 35 words, "
+    "plain and specific - what it is and why it might be useful later. "
+    "No preamble, no labels, no quotes, no 'this note'. Never invent "
+    "facts that are not in the note."
 )
 
 ANSWER_SYSTEM = (
