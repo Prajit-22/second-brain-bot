@@ -1,7 +1,13 @@
 import pytest
 
 from brain import Brain, HELP_TEXT, format_answer_reply
-from fakes import FakeSender, FakeStore, fake_fetch_url, fake_get_file
+from fakes import (
+    FakeSender,
+    FakeStore,
+    fake_fetch_url,
+    fake_get_file,
+    fake_web_lookup,
+)
 from telegram_api import Update
 
 CHAT = 42
@@ -110,11 +116,49 @@ class TestSaving:
 
 class TestAsk:
     @pytest.mark.asyncio
-    async def test_ask_with_nothing_saved(self):
+    async def test_ask_with_nothing_saved_falls_back_to_general_answer(self):
         brain, _, sender = make_brain()
         action = await brain.handle_update(text_update("/ask what is RRF?"))
-        assert action == "ask-no-results"
-        assert "Nothing saved" in sender.sent[0][1]
+        assert action == "answered-general"
+        reply = sender.sent[0][1]
+        assert reply.startswith("Not from your notes")
+        assert "general knowledge" in reply
+
+    @pytest.mark.asyncio
+    async def test_ask_falls_back_when_notes_do_not_cover_question(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("RRF merges keyword and vector rankings by rank"))
+        action = await brain.handle_update(text_update("/ask what is the capital of France?"))
+        assert action == "answered-general"
+        reply = sender.sent[-1][1]
+        assert reply.startswith("Not from your notes")
+        assert "Paris" in reply
+        # Two model calls: the grounded attempt said NO_MATCH, then general.
+        assert len(store.chat_calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_ask_records_conversation_turns(self):
+        brain, store, _ = make_brain()
+        await brain.handle_update(text_update("RRF merges keyword and vector rankings by rank"))
+        await brain.handle_update(text_update("/ask how does ranking work?"))
+        roles = [t["role"] for t in store.turns]
+        assert roles == ["user", "assistant"]
+        assert store.turns[0]["text"] == "how does ranking work?"
+
+    @pytest.mark.asyncio
+    async def test_followup_question_sees_history_in_prompt_and_retrieval(self):
+        brain, store, _ = make_brain()
+        await brain.handle_update(text_update("RRF merges keyword and vector rankings by rank"))
+        await brain.handle_update(text_update("/ask how does ranking work?"))
+        await brain.handle_update(text_update("/ask and what about the merge constant?"))
+        # The last answer prompt carries the earlier exchange as history.
+        user_prompt = store.chat_calls[-1][1]["content"]
+        assert "Recent conversation:" in user_prompt
+        assert "how does ranking work?" in user_prompt
+        # Retrieval also saw the earlier question, so the follow-up still
+        # found the RRF note (cited answer, not the general fallback).
+        assert "ranking" in store.last_embed_text
+        assert "Sources:" in _.sent[-1][1]
 
     @pytest.mark.asyncio
     async def test_ask_retrieves_ranks_and_cites(self):
@@ -180,7 +224,10 @@ class TestForget:
         await brain.handle_update(text_update("secret launch codes are blue"))
         await brain.handle_update(text_update("/forget 1"))
         action = await brain.handle_update(text_update("/ask what are the launch codes?"))
-        assert action == "ask-no-results"
+        # Falls back to general knowledge - crucially without leaking the
+        # deleted note's content into the answer.
+        assert action == "answered-general"
+        assert "blue" not in sender.sent[-1][1]
 
     @pytest.mark.asyncio
     async def test_forget_unknown_id(self):
@@ -232,3 +279,85 @@ class TestBrowse:
         await brain.handle_update(text_update("/digest"))
         reply = sender.sent[-1][1]
         assert "Digest" in reply and "Themes" in reply
+
+
+class TestBrainstorm:
+    @pytest.mark.asyncio
+    async def test_brainstorm_builds_on_notes_with_sources(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("RAG notes: hybrid retrieval = BM25 + vectors"))
+        action = await brain.handle_update(text_update("/brainstorm improve my retrieval"))
+        assert action == "brainstormed"
+        reply = sender.sent[-1][1]
+        assert "query expansion" in reply
+        assert "Sources:" in reply
+
+    @pytest.mark.asyncio
+    async def test_brainstorm_without_notes_still_works(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/brainstorm blog post topics"))
+        assert action == "brainstormed"
+        assert "1." in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_brainstorm_without_topic_shows_usage(self):
+        brain, _, sender = make_brain()
+        assert await brain.handle_update(text_update("/brainstorm")) == "brainstorm-empty"
+        assert "Usage" in sender.sent[0][1]
+
+
+class TestSummarizeSaved:
+    @pytest.mark.asyncio
+    async def test_summarize_gives_fuller_summary(self):
+        brain, _, sender = make_brain()
+        await brain.handle_update(text_update("RAG notes: hybrid retrieval = BM25 + vectors"))
+        action = await brain.handle_update(text_update("/summarize 1"))
+        assert action == "summarized"
+        reply = sender.sent[-1][1]
+        assert reply.startswith("Summary of #1")
+        assert "BM25" in reply
+
+    @pytest.mark.asyncio
+    async def test_summarize_unknown_id(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/summarize 99"))
+        assert action == "summarize-missing"
+        assert "No item #99" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_summarize_without_id_shows_usage(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/summarize"))
+        assert action == "summarize-invalid"
+        assert "Usage" in sender.sent[-1][1]
+
+
+class TestWeb:
+    @pytest.mark.asyncio
+    async def test_web_lookup_is_labeled_as_web(self):
+        brain, _, sender = make_brain(web_lookup_fn=fake_web_lookup)
+        action = await brain.handle_update(text_update("/web retrieval augmented generation"))
+        assert action == "web-answered"
+        reply = sender.sent[-1][1]
+        assert "Retrieval-augmented generation" in reply
+        assert "From Wikipedia" in reply
+        assert "not your notes" in reply
+
+    @pytest.mark.asyncio
+    async def test_web_lookup_no_result(self):
+        brain, _, sender = make_brain(web_lookup_fn=fake_web_lookup)
+        action = await brain.handle_update(text_update("/web zzzz nothing"))
+        assert action == "web-no-results"
+        assert "No web result" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_web_unavailable_without_lookup_fn(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/web anything"))
+        assert action == "web-unavailable"
+
+    @pytest.mark.asyncio
+    async def test_web_without_query_shows_usage(self):
+        brain, _, sender = make_brain(web_lookup_fn=fake_web_lookup)
+        assert await brain.handle_update(text_update("/web")) == "web-empty"
+        assert "Usage" in sender.sent[-1][1]
