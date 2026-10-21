@@ -8,7 +8,7 @@ inside the Cloudflare Worker and in local tests/demo:
 
 All ranking/chunking logic comes from retrieval.py (pure, unit tested)."""
 
-from typing import Awaitable, Callable, Dict, List, Optional, Sequence, Set
+from typing import Awaitable, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import prompts
 import web_lookup
@@ -32,7 +32,8 @@ HELP_TEXT = (
     "- then ask questions over everything you saved\n\n"
     "Commands:\n"
     "/ask <question> - answer from your notes, with sources; if your notes\n"
-    "  don't cover it, you get a labeled general answer instead of a dead end\n"
+    "  don't cover it, Wikipedia is checked (labeled, with link) before you\n"
+    "  get a labeled general answer - so current-fact questions work too\n"
     "/brainstorm <topic> - fresh ideas that build on what you saved\n"
     "/summarize <id> - a fuller summary of one saved item\n"
     "/web <query> - quick web lookup (via Wikipedia) for things you never saved\n"
@@ -96,6 +97,7 @@ class Brain:
         fetch_url: Optional[FetchUrlFn] = None,
         get_file: Optional[GetFileFn] = None,
         web_lookup_fn: Optional[WebLookupFn] = None,
+        web_article_fn: Optional[WebLookupFn] = None,
         max_context_chunks: int = 6,
     ):
         self._store = store
@@ -104,6 +106,7 @@ class Brain:
         self._fetch_url = fetch_url
         self._get_file = get_file
         self._web_lookup = web_lookup_fn
+        self._web_article = web_article_fn
         self._max_context_chunks = max_context_chunks
 
     async def handle_update(self, update: Update) -> str:
@@ -250,17 +253,45 @@ class Brain:
         if contexts:
             answer = (await self._store.chat(prompts.answer_messages(question, contexts, history))).strip()
         if not contexts or answer.upper().startswith(prompts.NO_MATCH_TOKEN):
-            # The notes do not cover this one: answer from general knowledge,
-            # clearly labeled, instead of ending at "nothing saved matches".
-            answer = (await self._store.chat(prompts.general_answer_messages(question, history))).strip()
-            await self._send(chat_id, "Not from your notes - general answer:\n\n" + answer)
-            action = "answered-general"
+            # The notes do not cover this one. For factual / current-info
+            # questions general knowledge hits its training cutoff ("who is
+            # the current ..."), so try Wikipedia first: an answer grounded
+            # in the fetched article, clearly labeled, with the source URL.
+            # Only when that yields nothing useful do we fall back to the
+            # labeled general answer.
+            web_reply, web_answer = await self._answer_from_web(question)
+            if web_reply is not None:
+                answer = web_answer
+                await self._send(chat_id, web_reply)
+                action = "answered-web"
+            else:
+                answer = (await self._store.chat(prompts.general_answer_messages(question, history))).strip()
+                await self._send(chat_id, "Not from your notes - general answer:\n\n" + answer)
+                action = "answered-general"
         else:
             await self._send(chat_id, format_answer_reply(answer, contexts))
             action = "answered"
         await self._store.add_turn(chat_id, "user", question)
         await self._store.add_turn(chat_id, "assistant", answer)
         return action
+
+    async def _answer_from_web(self, question: str) -> Tuple[Optional[str], str]:
+        """Ground a notes-miss question in Wikipedia. Returns (reply, answer)
+        or (None, "") when web lookup is unavailable, finds nothing, or the
+        article does not actually answer the question - the caller then uses
+        the labeled general-knowledge fallback."""
+        if self._web_article is None:
+            return None, ""
+        try:
+            article = await self._web_article(question)
+        except Exception:
+            return None, ""
+        if not article:
+            return None, ""
+        answer = (await self._store.chat(prompts.web_answer_messages(question, article))).strip()
+        if not answer or answer.upper().startswith(prompts.NO_MATCH_TOKEN):
+            return None, ""
+        return web_lookup.format_web_answer_reply(answer, article), answer
 
     async def _brainstorm(self, chat_id: int, topic: str) -> str:
         if not topic:
