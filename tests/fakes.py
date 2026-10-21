@@ -60,6 +60,15 @@ class FakeStore:
             if "(nothing saved yet)" in notes or not self._question_covered(notes, question):
                 return prompts.NO_MATCH_TOKEN
             return "Based on your saved notes, retrieval combines keyword and vector search [1]."
+        if system == prompts.WEB_ANSWER_SYSTEM:
+            extract = user.split("Question:")[0]
+            question = user.rsplit("Question:", 1)[-1]
+            if not self._question_covered(extract, question):
+                return prompts.NO_MATCH_TOKEN
+            return (
+                "Narendra Modi is the current prime minister of India, "
+                "serving since 26 May 2014."
+            )
         if system == prompts.GENERAL_ANSWER_SYSTEM:
             return "Paris is the capital of France. (general knowledge, no notes used)"
         if system == prompts.BRAINSTORM_SYSTEM:
@@ -210,4 +219,18 @@ async def fake_web_lookup(query):
         "extract": "Retrieval-augmented generation (RAG) combines a retriever "
         "over a document store with a generative model.",
         "url": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
+    }
+
+
+async def fake_web_article(query):
+    """Stands in for the Wikipedia article round-trip in entry.py: the
+    full-lead fetch used to ground /ask answers for notes-miss questions."""
+    if "zzzz" in query:
+        return None
+    return {
+        "title": "Prime Minister of India",
+        "extract": "The prime minister of India is the head of government of the "
+        "Republic of India. Narendra Modi is the current prime minister of "
+        "India, serving since 26 May 2014.",
+        "url": "https://en.wikipedia.org/wiki/Prime_Minister_of_India",
     }
