@@ -12,7 +12,7 @@ from urllib.parse import quote, urlencode
 _WIKI_API = "https://en.wikipedia.org/w/api.php"
 _WIKI_SUMMARY = "https://en.wikipedia.org/api/rest_v1/page/summary/"
 MAX_EXTRACT_CHARS = 1200
-MAX_ARTICLE_EXTRACT_CHARS = 2500
+MAX_ARTICLE_EXTRACT_CHARS = 4000
 
 
 def wikipedia_search_url(query: str, limit: int = 3) -> str:
@@ -140,13 +140,22 @@ def search_query(question: str) -> str:
         if stripped is None:
             break
         query = stripped.strip()
+    # A leading article also skews title ranking ("the prime minister of
+    # india" ranks the List article above the office article).
+    lower = query.lower()
+    for article in ("the ", "a ", "an "):
+        if lower.startswith(article):
+            query = query[len(article):].strip()
+            break
     return query or original
 
 
 def wikipedia_extract_url(title: str) -> str:
     """Full plain-text lead of an article (prop=extracts, intro only). The
     lead is richer than the REST summary - leads of office-holder articles
-    name the incumbent, which is what "who is the current X?" needs."""
+    name the incumbent, which is what "who is the current X?" needs. The
+    cap is generous (4000 chars) because that incumbent sentence often sits
+    at the very end of the lead."""
     return _WIKI_API + "?" + urlencode(
         {
             "action": "query",
