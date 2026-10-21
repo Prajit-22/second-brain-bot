@@ -37,6 +37,17 @@ GENERAL_ANSWER_SYSTEM = (
     "the user's notes."
 )
 
+WEB_ANSWER_SYSTEM = (
+    "You answer questions inside a personal second-brain Telegram bot. The "
+    "user's saved notes did not cover this question, so you are given a "
+    "Wikipedia article extract. Answer ONLY from that extract: direct, "
+    "plain text, under 80 words. If the extract does not answer the "
+    "question, reply with exactly " + NO_MATCH_TOKEN + " and nothing else - "
+    "a different step will answer from general knowledge. When the question "
+    "is about a current office holder or very recent events, add a short "
+    "note that Wikipedia is usually current but can lag breaking news."
+)
+
 BRAINSTORM_SYSTEM = (
     "You are a brainstorming partner inside a personal second-brain app. "
     "The user gives you a topic; you may also see notes they saved. "
@@ -124,6 +135,18 @@ def general_answer_messages(
     )
     return [
         {"role": "system", "content": GENERAL_ANSWER_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+
+
+def web_answer_messages(question: str, article: Dict[str, str]) -> List[Dict[str, str]]:
+    user = "Wikipedia article: {title}\n\n{extract}\n\nQuestion: {question}".format(
+        title=article.get("title", ""),
+        extract=article.get("extract", ""),
+        question=question,
+    )
+    return [
+        {"role": "system", "content": WEB_ANSWER_SYSTEM},
         {"role": "user", "content": user},
     ]
 
