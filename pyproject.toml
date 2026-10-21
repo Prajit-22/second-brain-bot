@@ -1,0 +1,12 @@
+[project]
+name = "second-brain-bot"
+version = "0.1.0"
+description = "Telegram second brain on a self-deployed Cloudflare Python Worker: save anything, ask anything."
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "workers-py",
+    "pytest",
+]
