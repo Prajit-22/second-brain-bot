@@ -24,6 +24,7 @@ HELP_TEXT = (
     "/ask <question> - answer from your saved notes, with sources\n"
     "/recent - your last 10 saved items\n"
     "/digest - AI digest of your recent saves\n"
+    "/forget <id> - delete a saved item for good\n"
     "/stats - how much you have saved\n"
     "/help - this message"
 )
@@ -46,15 +47,26 @@ def format_saved_reply(item_id: int, title: str, summary: str, n_chunks: int) ->
 
 
 def format_answer_reply(answer: str, contexts: List[Dict[str, str]]) -> str:
-    seen, sources = set(), []
+    """Append a Sources list whose numbers match the numbered context the
+    model saw. Several chunks can come from the same item; their numbers are
+    grouped onto one line ("[1, 3] Title") so no citation ever points at a
+    number missing from the list."""
+    numbers_by_label: Dict[str, List[int]] = {}
+    order: List[str] = []
     for i, ctx in enumerate(contexts, start=1):
         label = ctx.get("title") or ctx.get("url") or "note"
-        if label in seen:
-            continue
-        seen.add(label)
-        sources.append("[{i}] {label}".format(i=i, label=label))
-    if not sources:
+        if label not in numbers_by_label:
+            numbers_by_label[label] = []
+            order.append(label)
+        numbers_by_label[label].append(i)
+    if not order:
         return answer
+    sources = [
+        "[{nums}] {label}".format(
+            nums=", ".join(str(n) for n in numbers_by_label[label]), label=label
+        )
+        for label in order
+    ]
     return answer + "\n\nSources:\n" + "\n".join(sources)
 
 
@@ -99,6 +111,8 @@ class Brain:
             return "help"
         if name == "ask":
             return await self._ask(chat_id, args)
+        if name in ("forget", "delete"):
+            return await self._forget(chat_id, args)
         if name == "recent":
             return await self._recent(chat_id)
         if name == "digest":
@@ -187,6 +201,24 @@ class Brain:
         return "answered"
 
     # ---- browsing your brain -------------------------------------------
+
+    async def _forget(self, chat_id: int, args: str) -> str:
+        try:
+            item_id = int(args.strip())
+        except (ValueError, AttributeError):
+            await self._send(chat_id, "Usage: /forget <id> - e.g. /forget 3 (ids come from /recent)")
+            return "forget-invalid"
+        deleted = await self._store.delete_item(item_id)
+        if not deleted:
+            await self._send(chat_id, "No item #{id} in your second brain.".format(id=item_id))
+            return "forget-missing"
+        await self._send(
+            chat_id,
+            "Forgot #{id}: {title} - removed {n} indexed chunk(s).".format(
+                id=deleted["id"], title=deleted["title"], n=deleted["chunks_removed"]
+            ),
+        )
+        return "forgot"
 
     async def _recent(self, chat_id: int, limit: int = 10) -> str:
         items = await self._store.recent_items(limit)
