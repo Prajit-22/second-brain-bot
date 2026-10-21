@@ -65,7 +65,8 @@ class TestSaving:
         assert store.items[0]["kind"] == "text"
         assert store.chunks, "chunks should be indexed"
         reply = sender.sent[0][1]
-        assert "Saved as #1" in reply and "Summary:" in reply
+        assert "Saved #1:" in reply and "Summary:" in reply
+        assert "/ask" in reply
 
     @pytest.mark.asyncio
     async def test_duplicate_save_is_detected(self):
