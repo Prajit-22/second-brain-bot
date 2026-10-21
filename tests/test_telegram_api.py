@@ -86,6 +86,18 @@ class TestFindUrls:
     def test_no_urls(self):
         assert find_urls("no links here") == []
 
+    def test_balanced_parentheses_survive(self):
+        # Wikipedia-style links carry meaningful parentheses.
+        assert find_urls("see https://en.wikipedia.org/wiki/RAG_(retrieval) ok") == [
+            "https://en.wikipedia.org/wiki/RAG_(retrieval)"
+        ]
+
+    def test_unbalanced_trailing_bracket_is_dropped(self):
+        assert find_urls("(check https://x.dev/a)") == ["https://x.dev/a"]
+        assert find_urls("wiki https://en.wikipedia.org/wiki/RRF_(cs)) done") == [
+            "https://en.wikipedia.org/wiki/RRF_(cs)"
+        ]
+
 
 class TestAuth:
     def test_no_whitelist_allows_everyone(self):
