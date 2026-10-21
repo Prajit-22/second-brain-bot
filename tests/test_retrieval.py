@@ -4,8 +4,11 @@ from retrieval import (
     chunk_text,
     content_hash,
     extract_title,
+    filter_relevant,
     fts_query,
     html_to_text,
+    keyword_relevance,
+    looks_like_question,
     rrf_merge,
     tokenize,
 )
@@ -129,3 +132,63 @@ class TestHtml:
 
     def test_html_to_text_caps_length(self):
         assert len(html_to_text("x" * 50000, max_chars=100)) == 100
+
+
+class TestLooksLikeQuestion:
+    @pytest.mark.parametrize("text", [
+        "who is the prime minister of india?",
+        "what is RAG",                       # question word, no mark
+        "How do I deploy this",
+        "kya kal launch hai",                # Hinglish question word
+        "remember to ask Rahul tomorrow?",   # ends with ?
+    ])
+    def test_questions_detected(self, text):
+        assert looks_like_question(text)
+
+    @pytest.mark.parametrize("text", [
+        "Meeting with Rahul: launch is Friday",
+        "prime minister speech notes from today",
+        "idea: add query expansion",
+        "",
+        "   ",
+    ])
+    def test_statements_are_not_questions(self, text):
+        assert not looks_like_question(text)
+
+
+class TestKeywordRelevance:
+    def test_full_overlap(self):
+        assert keyword_relevance("launch pricing page", "the launch pricing page draft") == 1.0
+
+    def test_no_overlap(self):
+        assert keyword_relevance("launch pricing", "prime minister of india") == 0.0
+
+    def test_plural_tolerance_both_directions(self):
+        assert keyword_relevance("ranking", "vector rankings merged") == 1.0
+        assert keyword_relevance("ideas", "one idea saved") == 1.0
+
+    def test_stopwords_and_short_words_do_not_count(self):
+        # Only 'capital' and 'france' are content terms here.
+        assert keyword_relevance("what is the capital of france?", "capital of france notes") == 1.0
+
+    def test_query_without_content_terms_scores_zero(self):
+        assert keyword_relevance("what is the?", "anything at all") == 0.0
+
+
+class TestFilterRelevant:
+    CTX = [
+        {"id": "a", "title": "Launch", "text": "launch is friday"},
+        {"id": "b", "title": "PM question", "text": "who is the prime minister of india?"},
+    ]
+
+    def test_keyword_gate_keeps_relevant_drops_stray(self):
+        kept = filter_relevant("when is the launch?", self.CTX, {})
+        assert [c["id"] for c in kept] == ["a"]
+
+    def test_vector_gate_keeps_despite_no_keyword_overlap(self):
+        kept = filter_relevant("launch plans", self.CTX, {"b": 0.9})
+        assert {c["id"] for c in kept} == {"a", "b"}
+
+    def test_below_both_thresholds_drops(self):
+        kept = filter_relevant("launch plans", self.CTX, {"b": 0.4})
+        assert [c["id"] for c in kept] == ["a"]
