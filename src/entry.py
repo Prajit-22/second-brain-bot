@@ -52,7 +52,9 @@ class Default(WorkerEntrypoint):
             return Response("forbidden", status=403)
 
         try:
-            body = (await request.json()).to_py()
+            body = await request.json()
+            if hasattr(body, "to_py"):
+                body = body.to_py()
         except Exception:
             # Not valid JSON; tell Telegram it was accepted so it does not
             # keep retrying a payload that will never parse.
