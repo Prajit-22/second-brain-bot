@@ -19,6 +19,14 @@ from workers import Response, WorkerEntrypoint
 from brain import Brain
 from retrieval import extract_title, html_to_text
 from store import BrainStore
+from web_lookup import (
+    parse_fulltext_results,
+    parse_search_results,
+    parse_summary,
+    wikipedia_fulltext_search_url,
+    wikipedia_search_url,
+    wikipedia_summary_url,
+)
 from telegram_api import (
     api_url,
     build_send_payload,
@@ -102,6 +110,7 @@ class Default(WorkerEntrypoint):
             allowed_chat_ids=allowed or None,
             fetch_url=self._fetch_url,
             get_file=self._get_file,
+            web_lookup_fn=self._web_lookup,
         )
         await brain.handle_update(update)
 
@@ -132,6 +141,38 @@ class Default(WorkerEntrypoint):
         resp = await fetch(file_url(self.env.TELEGRAM_BOT_TOKEN, path))
         buffer = await resp.arrayBuffer()
         return bytes(buffer.to_py())
+
+    async def _web_lookup(self, query):
+        """Keyless web lookup: Wikipedia opensearch -> first real article's
+        summary. Returns None when nothing usable comes back."""
+        try:
+            resp = await fetch(
+                wikipedia_search_url(query),
+                _js({"headers": {"user-agent": USER_AGENT}, "redirect": "follow"}),
+            )
+            candidates = parse_search_results((await resp.json()).to_py())
+            titles = [title for title, _url in candidates]
+            if not titles:
+                # opensearch only matches titles; fall back to full-text
+                # search so multi-word queries still find an article.
+                resp = await fetch(
+                    wikipedia_fulltext_search_url(query),
+                    _js({"headers": {"user-agent": USER_AGENT}, "redirect": "follow"}),
+                )
+                titles = parse_fulltext_results((await resp.json()).to_py())
+            for title in titles:
+                resp = await fetch(
+                    wikipedia_summary_url(title),
+                    _js({"headers": {"user-agent": USER_AGENT}, "redirect": "follow"}),
+                )
+                if resp.status >= 400:
+                    continue
+                summary = parse_summary((await resp.json()).to_py())
+                if summary:
+                    return summary
+        except Exception:
+            return None
+        return None
 
     async def _fetch_url(self, url):
         try:
