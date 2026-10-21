@@ -122,9 +122,15 @@ class BrainStore:
         )
         return [row["chunk_id"] for row in rows.get("results", [])]
 
-    async def vector_search(self, vector: List[float], limit: int = 25) -> List[str]:
+    async def vector_search(self, vector: List[float], limit: int = 25) -> List[tuple]:
+        """Nearest neighbours as (chunk id, similarity score) pairs. The
+        cosine index scores 0-1; callers apply a relevance threshold instead
+        of trusting the unconditional topK."""
         matches = _py(await self._vectorize.query(vector, {"topK": limit}))
-        return [match["id"] for match in matches.get("matches", [])]
+        return [
+            (match["id"], float(match.get("score", 0.0)))
+            for match in matches.get("matches", [])
+        ]
 
     async def get_chunks(self, chunk_ids: List[str]) -> List[Dict[str, str]]:
         """Hydrate chunk ids with text + owning item title/url, preserving the
