@@ -186,6 +186,47 @@ class BrainStore:
         )
         return [dict(row) for row in rows.get("results", [])]
 
+    async def get_item(self, item_id: int) -> Optional[Dict]:
+        """One saved item with its full content, for /summarize <id>."""
+        row = _py(
+            await self._db.prepare(
+                "SELECT id, kind, title, url, content, summary, created_at"
+                " FROM items WHERE id = ?"
+            )
+            .bind(item_id)
+            .first()
+        )
+        return dict(row) if row else None
+
+    # ---- D1: conversation turns (short-term chat memory) -----------------
+
+    async def add_turn(self, chat_id: int, role: str, text: str, keep: int = 20) -> None:
+        """Append one conversation turn and prune older ones, so memory stays
+        short-term and the table cannot grow without bound."""
+        await self._db.batch(
+            [
+                self._db.prepare(
+                    "INSERT INTO turns (chat_id, role, text, created_at)"
+                    " VALUES (?, ?, ?, datetime('now'))"
+                ).bind(chat_id, role, text),
+                self._db.prepare(
+                    "DELETE FROM turns WHERE chat_id = ? AND id NOT IN"
+                    " (SELECT id FROM turns WHERE chat_id = ? ORDER BY id DESC LIMIT ?)"
+                ).bind(chat_id, chat_id, keep),
+            ]
+        )
+
+    async def recent_turns(self, chat_id: int, limit: int = 6) -> List[Dict[str, str]]:
+        """Newest-last list of the recent conversation, for prompt context."""
+        rows = _py(
+            await self._db.prepare(
+                "SELECT role, text FROM turns WHERE chat_id = ? ORDER BY id DESC LIMIT ?"
+            )
+            .bind(chat_id, limit)
+            .all()
+        )
+        return [dict(row) for row in reversed(rows.get("results", []))]
+
     async def stats(self) -> Dict[str, int]:
         items = _py(await self._db.prepare("SELECT COUNT(*) AS n FROM items").first())
         chunks = _py(await self._db.prepare("SELECT COUNT(*) AS n FROM chunks").first())
