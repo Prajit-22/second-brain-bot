@@ -1,7 +1,11 @@
 from web_lookup import (
+    format_web_answer_reply,
     format_web_reply,
+    parse_extract,
     parse_search_results,
     parse_summary,
+    search_query,
+    wikipedia_extract_url,
     wikipedia_search_url,
     wikipedia_summary_url,
 )
@@ -83,3 +87,62 @@ class TestFulltextFallback:
         assert parse_fulltext_results(payload) == ["Cloudflare"]
         assert parse_fulltext_results({"query": {}}) == []
         assert parse_fulltext_results("junk") == []
+
+
+class TestSearchQuery:
+    def test_strips_question_words_and_mark(self):
+        assert search_query("who is the prime minister of india?") == "the prime minister of india"
+
+    def test_strips_other_question_forms(self):
+        assert search_query("what is the capital of France") == "the capital of France"
+        assert search_query("how old is the Eiffel Tower?") == "the Eiffel Tower"
+        assert search_query("kya launch kal hai?") == "launch kal hai"
+
+    def test_non_question_is_unchanged(self):
+        assert search_query("retrieval augmented generation") == "retrieval augmented generation"
+
+    def test_empty_after_strip_falls_back_to_original(self):
+        assert search_query("kya?") == "kya"
+
+
+class TestExtract:
+    def test_url_uses_extracts_intro(self):
+        url = wikipedia_extract_url("Prime Minister of India")
+        assert "prop=extracts" in url
+        assert "exintro=1" in url
+        assert "explaintext=1" in url
+        assert "redirects=1" in url
+        assert "titles=Prime+Minister+of+India" in url
+
+    def _payload(self, **page):
+        page.setdefault("title", "Prime Minister of India")
+        page.setdefault("extract", "The prime minister of India is the head of government.")
+        page.setdefault("fullurl", "https://en.wikipedia.org/wiki/Prime_Minister_of_India")
+        return {"query": {"pages": {"12345": page}}}
+
+    def test_parses_first_real_page(self):
+        result = parse_extract(self._payload())
+        assert result["title"] == "Prime Minister of India"
+        assert result["extract"].startswith("The prime minister of India")
+        assert result["url"].endswith("/Prime_Minister_of_India")
+
+    def test_missing_page_is_skipped(self):
+        assert parse_extract({"query": {"pages": {"-1": {"missing": ""}}}}) is None
+        assert parse_extract(self._payload(extract="")) is None
+        assert parse_extract("not a dict") is None
+
+    def test_long_extract_is_capped(self):
+        result = parse_extract(self._payload(extract="x " * 5000))
+        assert len(result["extract"]) <= 2500
+
+
+class TestFormatWebAnswerReply:
+    def test_reply_is_labeled_as_web_not_notes(self):
+        reply = format_web_answer_reply(
+            "Narendra Modi is the current prime minister of India.",
+            {"title": "Prime Minister of India", "url": "https://en.wikipedia.org/wiki/Prime_Minister_of_India"},
+        )
+        assert reply.startswith("Narendra Modi")
+        assert "From Wikipedia" in reply
+        assert "not your notes" in reply
+        assert reply.endswith("https://en.wikipedia.org/wiki/Prime_Minister_of_India")
