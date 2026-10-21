@@ -74,7 +74,7 @@ def render(transcript):
 def check(transcript):
     texts = [m["text"] for m in transcript if m["from"] == "brain"]
     assert any("second brain" in t for t in texts), "help reply missing"
-    assert any(t.startswith("Saved as #") for t in texts), "save reply missing"
+    assert any(t.startswith("Saved #") for t in texts), "save reply missing"
     assert any("Already saved" in t for t in texts), "dedupe reply missing"
     assert any("Forgot #4" in t for t in texts), "forget reply missing"
     assert any("Sources:" in t for t in texts), "cited answer missing"
