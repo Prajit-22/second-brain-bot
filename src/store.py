@@ -133,6 +133,30 @@ class BrainStore:
         by_id = {row["id"]: row for row in rows.get("results", [])}
         return [dict(by_id[cid]) for cid in chunk_ids if cid in by_id]
 
+    async def delete_item(self, item_id: int) -> Optional[Dict]:
+        """Remove an item everywhere it lives: D1 (item + chunks + FTS rows)
+        and Vectorize (its chunk vectors). Returns a small report, or None
+        when no such item exists."""
+        item = _py(
+            await self._db.prepare("SELECT id, title FROM items WHERE id = ?").bind(item_id).first()
+        )
+        if not item:
+            return None
+        rows = _py(
+            await self._db.prepare("SELECT id FROM chunks WHERE item_id = ?").bind(item_id).all()
+        )
+        chunk_ids = [row["id"] for row in rows.get("results", [])]
+        statements = [
+            self._db.prepare("DELETE FROM chunks_fts WHERE chunk_id = ?").bind(cid)
+            for cid in chunk_ids
+        ]
+        statements.append(self._db.prepare("DELETE FROM chunks WHERE item_id = ?").bind(item_id))
+        statements.append(self._db.prepare("DELETE FROM items WHERE id = ?").bind(item_id))
+        await self._db.batch(statements)
+        if chunk_ids:
+            await self._vectorize.deleteByIds(chunk_ids)
+        return {"id": item["id"], "title": item["title"], "chunks_removed": len(chunk_ids)}
+
     async def recent_items(self, limit: int = 10) -> List[Dict]:
         rows = _py(
             await self._db.prepare(
