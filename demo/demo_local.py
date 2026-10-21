@@ -26,6 +26,7 @@ from fakes import (  # noqa: E402
     FakeStore,
     fake_fetch_url,
     fake_get_file,
+    fake_web_article,
     fake_web_lookup,
 )
 from telegram_api import Update  # noqa: E402
@@ -59,6 +60,7 @@ async def run():
         fetch_url=fake_fetch_url,
         get_file=fake_get_file,
         web_lookup_fn=fake_web_lookup,
+        web_article_fn=fake_web_article,
     )
     transcript = []
     for step in SCRIPT:
