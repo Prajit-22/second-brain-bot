@@ -5,6 +5,7 @@ run of the bot's logic, just without Cloudflare."""
 import hashlib
 from typing import Dict, List, Optional
 
+import prompts
 from retrieval import tokenize
 
 DIMENSIONS = 64
@@ -30,19 +31,48 @@ class FakeStore:
     def __init__(self):
         self.items: List[Dict] = []
         self.chunks: Dict[str, Dict] = {}
+        self.turns: List[Dict] = []
         self.chat_calls: List[List[Dict[str, str]]] = []
         self._next_id = 1
 
+    @staticmethod
+    def _question_covered(notes_text: str, question: str) -> bool:
+        """Stand-in for the model's relevance judgment: the notes 'cover'
+        the question when any content word of the question appears in them."""
+        notes_lower = notes_text.lower()
+        for tok in tokenize(question):
+            if len(tok) >= 4 and (tok in notes_lower or tok.rstrip("s") in notes_lower):
+                return True
+        return False
+
     # --- "Workers AI" ---
     async def embed(self, texts):
+        self.last_embed_text = texts[0] if texts else ""
         return [fake_embed_one(t) for t in texts]
 
     async def chat(self, messages):
         self.chat_calls.append(messages)
+        system = messages[0]["content"]
         user = messages[1]["content"]
-        if user.startswith("Notes:"):
+        if system == prompts.ANSWER_SYSTEM:
+            notes = user.split("Question:")[0]
+            question = user.rsplit("Question:", 1)[-1]
+            if "(nothing saved yet)" in notes or not self._question_covered(notes, question):
+                return prompts.NO_MATCH_TOKEN
             return "Based on your saved notes, retrieval combines keyword and vector search [1]."
-        if user.startswith("Recent saved notes:"):
+        if system == prompts.GENERAL_ANSWER_SYSTEM:
+            return "Paris is the capital of France. (general knowledge, no notes used)"
+        if system == prompts.BRAINSTORM_SYSTEM:
+            return (
+                "1. Add query expansion to retrieval [1]\n"
+                "2. Log questions that miss every note\n"
+                "3. Weekly digest of gaps\n"
+                "4. Try HyDE-style hypothetical chunks\n"
+                "5. Compare against a pure vector baseline"
+            )
+        if system == prompts.DETAIL_SUMMARY_SYSTEM:
+            return "Overview: the note explains hybrid retrieval.\n- BM25 for keywords\n- vectors for meaning\n- RRF merges both"
+        if system == prompts.DIGEST_SYSTEM:
             return "Themes: infra notes and reading list. Overall: mostly Cloudflare lately."
         return "Summary: " + user[:80]
 
@@ -123,6 +153,22 @@ class FakeStore:
                 return {"id": item["id"], "title": item["title"], "chunks_removed": len(doomed)}
         return None
 
+    async def get_item(self, item_id):
+        for item in self.items:
+            if item["id"] == item_id:
+                return item
+        return None
+
+    async def add_turn(self, chat_id, role, text, keep=20):
+        self.turns.append({"chat_id": chat_id, "role": role, "text": text})
+        del self.turns[:-keep]
+
+    async def recent_turns(self, chat_id, limit=6):
+        return [
+            {"role": t["role"], "text": t["text"]}
+            for t in self.turns if t["chat_id"] == chat_id
+        ][-limit:]
+
     async def recent_items(self, limit=10):
         return list(reversed(self.items))[:limit]
 
@@ -152,3 +198,15 @@ async def fake_fetch_url(url):
 
 async def fake_get_file(file_id):
     return b"fake-ogg-audio-bytes"
+
+
+async def fake_web_lookup(query):
+    """Stands in for the Wikipedia round-trip in entry.py."""
+    if "zzzz" in query:
+        return None
+    return {
+        "title": "Retrieval-augmented generation",
+        "extract": "Retrieval-augmented generation (RAG) combines a retriever "
+        "over a document store with a generative model.",
+        "url": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
+    }
