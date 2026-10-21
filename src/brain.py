@@ -12,7 +12,14 @@ from typing import Awaitable, Callable, Dict, List, Optional, Sequence, Set
 
 import prompts
 import web_lookup
-from retrieval import chunk_text, content_hash, fts_query, rrf_merge
+from retrieval import (
+    chunk_text,
+    content_hash,
+    filter_relevant,
+    fts_query,
+    looks_like_question,
+    rrf_merge,
+)
 from telegram_api import Update, find_urls, is_authorized, parse_command
 
 HELP_TEXT = (
@@ -20,6 +27,8 @@ HELP_TEXT = (
     "Send me anything:\n"
     "- text or links -> I save and summarize them\n"
     "- voice notes -> I transcribe and save them\n"
+    "- a question (ends with ? or starts with who/what/how...) -> I answer\n"
+    "  it like /ask instead of saving it (forward a question to save it)\n"
     "- then ask questions over everything you saved\n\n"
     "Commands:\n"
     "/ask <question> - answer from your notes, with sources; if your notes\n"
@@ -106,6 +115,16 @@ class Brain:
         if command:
             return await self._handle_command(update.chat_id, command[0], command[1])
         if update.kind == "text":
+            # A plain message that is clearly a question is the user asking,
+            # not jotting something down - answer it like /ask instead of
+            # silently saving the question itself as a note. Forwards and
+            # messages with links still save (they are content to keep).
+            if (
+                looks_like_question(update.text)
+                and not update.is_forward
+                and not find_urls(update.text)
+            ):
+                return await self._ask(update.chat_id, update.text)
             return await self._save_text(update)
         if update.kind == "voice":
             return await self._save_voice(update)
@@ -197,9 +216,13 @@ class Brain:
     # ---- asking ---------------------------------------------------------
 
     async def _retrieve(self, question: str, history: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
-        """Hybrid keyword + vector retrieval over saved chunks. The recent
-        conversation joins the retrieval query so a follow-up like 'and the
-        second one?' still pulls the chunks the chat is about."""
+        """Hybrid keyword + vector retrieval over saved chunks, with a
+        relevance threshold: RRF only *ranks* candidates, and both backends
+        return something for every query, so a final gate (keyword coverage
+        or vector similarity) is what keeps unrelated saved notes out of the
+        context - and therefore out of answers, citations and brainstorms.
+        The recent conversation joins the retrieval query so a follow-up
+        like 'and the second one?' still pulls the chunks the chat is about."""
         history_text = " ".join(
             turn.get("text", "") for turn in history if turn.get("role") == "user"
         )
@@ -207,11 +230,15 @@ class Brain:
         vector = (await self._store.embed([retrieval_query]))[0]
         query = fts_query(retrieval_query)
         keyword_ids = await self._store.fts_search(query, limit=25) if query else []
-        vector_ids = await self._store.vector_search(vector, limit=25)
-        merged = rrf_merge([keyword_ids, vector_ids], limit=self._max_context_chunks)
+        vector_hits = await self._store.vector_search(vector, limit=25)
+        merged = rrf_merge(
+            [keyword_ids, [cid for cid, _score in vector_hits]],
+            limit=self._max_context_chunks,
+        )
         if not merged:
             return []
-        return await self._store.get_chunks([cid for cid, _score in merged])
+        chunks = await self._store.get_chunks([cid for cid, _score in merged])
+        return filter_relevant([question, retrieval_query], chunks, dict(vector_hits))
 
     async def _ask(self, chat_id: int, question: str) -> str:
         if not question:
