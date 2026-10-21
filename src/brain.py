@@ -8,9 +8,10 @@ inside the Cloudflare Worker and in local tests/demo:
 
 All ranking/chunking logic comes from retrieval.py (pure, unit tested)."""
 
-from typing import Awaitable, Callable, Dict, List, Optional, Set
+from typing import Awaitable, Callable, Dict, List, Optional, Sequence, Set
 
 import prompts
+import web_lookup
 from retrieval import chunk_text, content_hash, fts_query, rrf_merge
 from telegram_api import Update, find_urls, is_authorized, parse_command
 
@@ -21,7 +22,11 @@ HELP_TEXT = (
     "- voice notes -> I transcribe and save them\n"
     "- then ask questions over everything you saved\n\n"
     "Commands:\n"
-    "/ask <question> - answer from your saved notes, with sources\n"
+    "/ask <question> - answer from your notes, with sources; if your notes\n"
+    "  don't cover it, you get a labeled general answer instead of a dead end\n"
+    "/brainstorm <topic> - fresh ideas that build on what you saved\n"
+    "/summarize <id> - a fuller summary of one saved item\n"
+    "/web <query> - quick web lookup (via Wikipedia) for things you never saved\n"
     "/recent - your last 10 saved items\n"
     "/digest - AI digest of your recent saves\n"
     "/forget <id> - delete a saved item for good\n"
@@ -32,6 +37,7 @@ HELP_TEXT = (
 SendFn = Callable[[int, str], Awaitable[None]]
 FetchUrlFn = Callable[[str], Awaitable[Optional[Dict[str, str]]]]
 GetFileFn = Callable[[str], Awaitable[Optional[bytes]]]
+WebLookupFn = Callable[[str], Awaitable[Optional[Dict[str, str]]]]
 
 
 def _short_title(text: str, limit: int = 60) -> str:
@@ -80,6 +86,7 @@ class Brain:
         allowed_chat_ids: Optional[Set[int]] = None,
         fetch_url: Optional[FetchUrlFn] = None,
         get_file: Optional[GetFileFn] = None,
+        web_lookup_fn: Optional[WebLookupFn] = None,
         max_context_chunks: int = 6,
     ):
         self._store = store
@@ -87,6 +94,7 @@ class Brain:
         self._allowed = allowed_chat_ids
         self._fetch_url = fetch_url
         self._get_file = get_file
+        self._web_lookup = web_lookup_fn
         self._max_context_chunks = max_context_chunks
 
     async def handle_update(self, update: Update) -> str:
@@ -113,6 +121,12 @@ class Brain:
             return "help"
         if name == "ask":
             return await self._ask(chat_id, args)
+        if name == "brainstorm":
+            return await self._brainstorm(chat_id, args)
+        if name == "summarize":
+            return await self._summarize_saved(chat_id, args)
+        if name == "web":
+            return await self._web(chat_id, args)
         if name in ("forget", "delete"):
             return await self._forget(chat_id, args)
         if name == "recent":
@@ -182,25 +196,94 @@ class Brain:
 
     # ---- asking ---------------------------------------------------------
 
-    async def _ask(self, chat_id: int, question: str) -> str:
-        if not question:
-            await self._send(chat_id, "Usage: /ask <question> - e.g. /ask what did I save about RAG?")
-            return "ask-empty"
-        vector = (await self._store.embed([question]))[0]
-        query = fts_query(question)
+    async def _retrieve(self, question: str, history: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
+        """Hybrid keyword + vector retrieval over saved chunks. The recent
+        conversation joins the retrieval query so a follow-up like 'and the
+        second one?' still pulls the chunks the chat is about."""
+        history_text = " ".join(
+            turn.get("text", "") for turn in history if turn.get("role") == "user"
+        )
+        retrieval_query = (history_text + " " + question).strip()
+        vector = (await self._store.embed([retrieval_query]))[0]
+        query = fts_query(retrieval_query)
         keyword_ids = await self._store.fts_search(query, limit=25) if query else []
         vector_ids = await self._store.vector_search(vector, limit=25)
         merged = rrf_merge([keyword_ids, vector_ids], limit=self._max_context_chunks)
         if not merged:
-            await self._send(
-                chat_id,
-                "Nothing saved matches that yet. Forward me a few notes/links first, then ask again.",
-            )
-            return "ask-no-results"
-        contexts = await self._store.get_chunks([cid for cid, _score in merged])
-        answer = (await self._store.chat(prompts.answer_messages(question, contexts))).strip()
-        await self._send(chat_id, format_answer_reply(answer, contexts))
-        return "answered"
+            return []
+        return await self._store.get_chunks([cid for cid, _score in merged])
+
+    async def _ask(self, chat_id: int, question: str) -> str:
+        if not question:
+            await self._send(chat_id, "Usage: /ask <question> - e.g. /ask what did I save about RAG?")
+            return "ask-empty"
+        history = await self._store.recent_turns(chat_id)
+        contexts = await self._retrieve(question, history)
+        answer = ""
+        if contexts:
+            answer = (await self._store.chat(prompts.answer_messages(question, contexts, history))).strip()
+        if not contexts or answer.upper().startswith(prompts.NO_MATCH_TOKEN):
+            # The notes do not cover this one: answer from general knowledge,
+            # clearly labeled, instead of ending at "nothing saved matches".
+            answer = (await self._store.chat(prompts.general_answer_messages(question, history))).strip()
+            await self._send(chat_id, "Not from your notes - general answer:\n\n" + answer)
+            action = "answered-general"
+        else:
+            await self._send(chat_id, format_answer_reply(answer, contexts))
+            action = "answered"
+        await self._store.add_turn(chat_id, "user", question)
+        await self._store.add_turn(chat_id, "assistant", answer)
+        return action
+
+    async def _brainstorm(self, chat_id: int, topic: str) -> str:
+        if not topic:
+            await self._send(chat_id, "Usage: /brainstorm <topic> - e.g. /brainstorm side project ideas from my notes")
+            return "brainstorm-empty"
+        history = await self._store.recent_turns(chat_id)
+        contexts = await self._retrieve(topic, history)
+        ideas = (await self._store.chat(prompts.brainstorm_messages(topic, contexts, history))).strip()
+        if contexts:
+            await self._send(chat_id, format_answer_reply(ideas, contexts))
+        else:
+            await self._send(chat_id, ideas)
+        await self._store.add_turn(chat_id, "user", "/brainstorm " + topic)
+        await self._store.add_turn(chat_id, "assistant", ideas)
+        return "brainstormed"
+
+    async def _summarize_saved(self, chat_id: int, args: str) -> str:
+        try:
+            item_id = int(args.strip())
+        except (ValueError, AttributeError):
+            await self._send(chat_id, "Usage: /summarize <id> - e.g. /summarize 3 (ids come from /recent)")
+            return "summarize-invalid"
+        item = await self._store.get_item(item_id)
+        if not item:
+            await self._send(chat_id, "No item #{id} in your second brain.".format(id=item_id))
+            return "summarize-missing"
+        detail = (
+            await self._store.chat(prompts.detail_summary_messages(item["title"], item["content"]))
+        ).strip()
+        await self._send(
+            chat_id,
+            "Summary of #{id}: {title}\n\n{detail}".format(
+                id=item_id, title=item["title"], detail=detail
+            ),
+        )
+        return "summarized"
+
+    async def _web(self, chat_id: int, query: str) -> str:
+        if not query:
+            await self._send(chat_id, "Usage: /web <query> - e.g. /web retrieval augmented generation")
+            return "web-empty"
+        if self._web_lookup is None:
+            await self._send(chat_id, "Web lookup is not available on this deployment.")
+            return "web-unavailable"
+        result = await self._web_lookup(query)
+        if not result:
+            await self._send(chat_id, "No web result found for that - try rephrasing the query.")
+            return "web-no-results"
+        await self._send(chat_id, web_lookup.format_web_reply(result))
+        return "web-answered"
 
     # ---- browsing your brain -------------------------------------------
 
