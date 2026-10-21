@@ -32,6 +32,8 @@ SCRIPT = [
     ("user", "must read https://developers.cloudflare.com/workers/languages/python/"),
     ("user", "voice", "idea: add a /digest command"),
     ("user", "RAG notes: hybrid retrieval = BM25 + vector search merged with RRF (k=60)"),
+    ("user", "scratch note: try the new samosa place"),
+    ("user", "/forget 4"),
     ("user", "/ask how does hybrid retrieval work?"),
     ("user", "/recent"),
     ("user", "/digest"),
@@ -74,10 +76,11 @@ def check(transcript):
     assert any("second brain" in t for t in texts), "help reply missing"
     assert any(t.startswith("Saved as #") for t in texts), "save reply missing"
     assert any("Already saved" in t for t in texts), "dedupe reply missing"
+    assert any("Forgot #4" in t for t in texts), "forget reply missing"
     assert any("Sources:" in t for t in texts), "cited answer missing"
     assert any("Last 3 saved items" in t for t in texts), "recent missing"
     assert any("Digest" in t for t in texts), "digest missing"
-    assert any("3 item(s)" in t for t in texts), "stats wrong (dedupe broken?)"
+    assert any("3 item(s)" in t for t in texts), "stats wrong (dedupe or forget broken?)"
     print("demo check: OK -", len(transcript), "messages")
 
 
