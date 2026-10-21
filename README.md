@@ -4,6 +4,8 @@ A Telegram "second brain" that runs entirely on a **self-deployed Cloudflare Pyt
 
 Forward it anything - text, links, voice notes - and it stores, transcribes and summarizes them. Then ask questions in plain language and it answers **from your saved notes, with sources**, using hybrid retrieval (BM25 + vector search merged with Reciprocal Rank Fusion).
 
+It is not limited to your notes: when a question is not covered by anything you saved, you get a **clearly labeled general answer** instead of a dead end, follow-up questions work because the bot remembers the last few exchanges, and `/brainstorm`, `/summarize <id>` and `/web` help you think beyond what you saved.
+
 ![demo chat](demo/demo-chat.svg)
 
 ## What it does
@@ -14,7 +16,11 @@ Forward it anything - text, links, voice notes - and it stores, transcribes and 
 | a link | fetches the page, extracts the text, saves page + your note |
 | a voice note | transcribes it with Whisper, saves the transcript (+ your caption) |
 | the same thing twice | detects the duplicate (sha256) instead of saving again |
-| `/ask <question>` | hybrid search over your notes, answer with numbered citations |
+| `/ask <question>` | hybrid search over your notes, answer with numbered citations; notes don't cover it? labeled general-knowledge answer |
+| follow-up questions | the last few exchanges are kept as chat memory, so "and the second one?" works |
+| `/brainstorm <topic>` | fresh ideas that build on your related saved notes (cited when used) |
+| `/summarize <id>` | a fuller, structured summary of one saved item |
+| `/web <query>` | keyless web lookup (Wikipedia summary), labeled as web - never confused with your notes |
 | `/recent` `/digest` `/stats` | browse, get an AI digest, see counts |
 | `/forget <id>` | deletes a saved item for good - item, chunks and embeddings |
 
@@ -27,6 +33,9 @@ Forward it anything - text, links, voice notes - and it stores, transcribes and 
 - **Vectorize** - 768-dim `@cf/baai/bge-base-en-v1.5` embeddings per chunk for the semantic side.
 - **Workers AI** - Llama 3.1 8B (summaries, answers, digests), bge (embeddings), Whisper (voice transcription). Models are wrangler `[vars]`, so they can be swapped without a code change.
 - **Hybrid retrieval** - both rankings merged with **Reciprocal Rank Fusion** (`src/retrieval.py`), then the top chunks become numbered context for the answer prompt.
+- **Short-term chat memory** (D1 `turns` table) - the last few Q&A exchanges join both the retrieval query and the answer prompt, so follow-ups resolve. Pruned to 20 turns per chat on every write.
+- **Honest fallback** - the answer model replies with a `NO_MATCH` token when the notes do not cover the question, and the bot then answers from general knowledge under a "Not from your notes" label. No fake citations.
+- **Keyless web lookup** - `/web` uses Wikipedia's public opensearch + summary APIs (`src/web_lookup.py`): no API key, no paid service, and the reply always names its source.
 
 Everything is Python: one language from webhook to retrieval to prompts.
 
@@ -80,6 +89,13 @@ Invoke-RestMethod -Uri "https://api.telegram.org/bot<TOKEN>/setWebhook" -Method 
 
 Done - forward the bot a link and `/ask` it something.
 
+**Upgrading an existing deployment?** Pull the latest code, re-run the schema (it only adds the new chat-memory table) and redeploy:
+
+```powershell
+npx wrangler d1 execute second-brain-db --remote --file=schema.sql
+uv run pywrangler deploy
+```
+
 One-click deploy also works via the button (you still need steps 1, 3, 4 and 6 for the bot token, database, secrets and webhook):
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Prajit-22/second-brain-bot)
@@ -94,7 +110,7 @@ No Cloudflare account needed for the tests or the demo - the bot's logic is plai
 
 ```powershell
 pip install -r requirements-dev.txt
-python -m pytest tests/ -v          # 79 unit tests
+python -m pytest tests/ -v          # 109 unit tests
 python demo/demo_local.py           # end-to-end demo with in-memory fakes
 ```
 
@@ -108,11 +124,12 @@ src/
   brain.py         orchestration: save/ask/recent/digest/stats flows
   store.py         thin D1 + Vectorize + Workers AI adapter
   retrieval.py     chunking, tokenizer, FTS5 query building, RRF merge, HTML -> text (pure)
-  prompts.py       system/user prompt builders (pure)
+  prompts.py       system/user prompt builders, incl. the NO_MATCH fallback contract (pure)
+  web_lookup.py    keyless Wikipedia lookup: URL building + JSON parsing (pure)
   telegram_api.py  update parsing, commands, auth, message splitting (pure)
-tests/             79 unit tests + in-memory fakes
+tests/             109 unit tests + in-memory fakes
 demo/demo_local.py end-to-end demo harness (prints the simulated chat above)
-schema.sql         D1 schema (items, chunks, FTS5)
+schema.sql         D1 schema (items, chunks, FTS5, chat-memory turns)
 wrangler.toml      bindings + model config
 ```
 
@@ -121,5 +138,7 @@ wrangler.toml      bindings + model config
 - **Why hybrid retrieval?** Pure vector search misses exact keywords ("that Ragas metric", an error string); pure BM25 misses paraphrases ("how do I deploy it" vs "shipping steps"). RRF merges both rankings by rank position only, so neither score scale matters - and a chunk found by both ranks highest.
 - **Why D1 FTS5 instead of a second service?** SQLite ships `bm25()` for free, colocated with the metadata, one `schema.sql` to understand.
 - **Why acknowledge the webhook instantly?** Telegram retries slow webhooks, which would double-save notes. `ctx.waitUntil` finishes the AI work after the 200, replies go out via the Bot API.
+- **Why a NO_MATCH token instead of trusting similarity scores?** Vector search always returns *some* nearest chunk, so score thresholds silently misjudge relevance. Letting the model declare "the notes don't cover this" with an exact token makes the fallback deterministic and unit-testable - and the general answer it triggers is always labeled, so it can never be mistaken for something you saved.
+- **Why Wikipedia for /web?** It is the only decent lookup that is truly keyless and free at any personal scale, and its summary API returns clean, sourced extracts. Anything bigger (a real search API) would need a paid key, which breaks the $0 design goal.
 - **Why a webhook secret + chat allow-list?** The worker URL is public; `X-Telegram-Bot-Api-Secret-Token` proves the POST came from Telegram, and `ALLOWED_CHAT_IDS` makes the bot answer only you.
-- **Why is everything pure except `entry.py`/`store.py`?** So 79 unit tests and the demo exercise the exact production logic with no Workers runtime - and every line stays explainable.
+- **Why is everything pure except `entry.py`/`store.py`?** So 109 unit tests and the demo exercise the exact production logic with no Workers runtime - and every line stays explainable.
