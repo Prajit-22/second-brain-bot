@@ -32,3 +32,16 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 
 CREATE INDEX IF NOT EXISTS idx_chunks_item ON chunks(item_id);
 CREATE INDEX IF NOT EXISTS idx_items_chat  ON items(chat_id, id);
+
+-- Short-term chat memory: the last few /ask (and /brainstorm) exchanges per
+-- chat, so follow-up questions have context. Pruned to the newest 20 per
+-- chat on every insert (see BrainStore.add_turn).
+CREATE TABLE IF NOT EXISTS turns (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    INTEGER NOT NULL,
+    role       TEXT    NOT NULL,              -- 'user' | 'assistant'
+    text       TEXT    NOT NULL,
+    created_at TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_turns_chat ON turns(chat_id, id);
