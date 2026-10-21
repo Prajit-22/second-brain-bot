@@ -6,6 +6,7 @@ from fakes import (
     FakeStore,
     fake_fetch_url,
     fake_get_file,
+    fake_web_article,
     fake_web_lookup,
 )
 from telegram_api import Update
@@ -363,6 +364,67 @@ class TestWeb:
         brain, _, sender = make_brain(web_lookup_fn=fake_web_lookup)
         assert await brain.handle_update(text_update("/web")) == "web-empty"
         assert "Usage" in sender.sent[-1][1]
+
+
+class TestAskWebGrounding:
+    """When the notes miss, /ask tries Wikipedia before general knowledge."""
+
+    @pytest.mark.asyncio
+    async def test_ask_uses_wikipedia_when_notes_miss(self):
+        brain, _, sender = make_brain(web_article_fn=fake_web_article)
+        action = await brain.handle_update(text_update("/ask who is the prime minister of india?"))
+        assert action == "answered-web"
+        reply = sender.sent[-1][1]
+        assert "Narendra Modi" in reply
+        assert "From Wikipedia" in reply
+        assert "not your notes" in reply
+        assert "https://en.wikipedia.org/wiki/Prime_Minister_of_India" in reply
+
+    @pytest.mark.asyncio
+    async def test_plain_question_also_uses_wikipedia(self):
+        brain, store, sender = make_brain(web_article_fn=fake_web_article)
+        action = await brain.handle_update(text_update("who is the prime minister of india?"))
+        assert action == "answered-web"
+        assert store.items == [], "a question must not become a saved note"
+
+    @pytest.mark.asyncio
+    async def test_web_miss_falls_back_to_general(self):
+        brain, _, sender = make_brain(web_article_fn=fake_web_article)
+        action = await brain.handle_update(text_update("/ask zzzz unknown thing?"))
+        assert action == "answered-general"
+        assert sender.sent[-1][1].startswith("Not from your notes")
+
+    @pytest.mark.asyncio
+    async def test_irrelevant_article_falls_back_to_general(self):
+        # Wikipedia returned the PM article, but the question is about
+        # something else: the model must emit NO_MATCH and the bot falls
+        # back to the labeled general answer rather than citing a bad page.
+        brain, _, sender = make_brain(web_article_fn=fake_web_article)
+        action = await brain.handle_update(text_update("/ask what is the capital of France?"))
+        assert action == "answered-general"
+        assert sender.sent[-1][1].startswith("Not from your notes")
+
+    @pytest.mark.asyncio
+    async def test_without_web_fn_general_fallback_is_kept(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/ask what is the capital of France?"))
+        assert action == "answered-general"
+        assert "Paris" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_web_answer_records_conversation_turns(self):
+        brain, store, _ = make_brain(web_article_fn=fake_web_article)
+        await brain.handle_update(text_update("/ask who is the prime minister of india?"))
+        assert [t["role"] for t in store.turns] == ["user", "assistant"]
+        assert "Modi" in store.turns[-1]["text"]
+
+    @pytest.mark.asyncio
+    async def test_notes_still_win_over_wikipedia(self):
+        brain, _, sender = make_brain(web_article_fn=fake_web_article)
+        await brain.handle_update(text_update("RRF merges keyword and vector rankings by rank"))
+        action = await brain.handle_update(text_update("/ask how does ranking work?"))
+        assert action == "answered"
+        assert "Sources:" in sender.sent[-1][1]
 
 
 class TestQuestionRouting:
