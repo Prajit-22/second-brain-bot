@@ -21,7 +21,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tests"))
 
 from brain import Brain  # noqa: E402
-from fakes import FakeSender, FakeStore, fake_fetch_url, fake_get_file  # noqa: E402
+from fakes import (  # noqa: E402
+    FakeSender,
+    FakeStore,
+    fake_fetch_url,
+    fake_get_file,
+    fake_web_lookup,
+)
 from telegram_api import Update  # noqa: E402
 
 CHAT_ID = 42
@@ -35,6 +41,10 @@ SCRIPT = [
     ("user", "scratch note: try the new samosa place"),
     ("user", "/forget 4"),
     ("user", "/ask how does hybrid retrieval work?"),
+    ("user", "/ask what is the capital of France?"),
+    ("user", "/brainstorm ways to make my retrieval notes better"),
+    ("user", "/summarize 1"),
+    ("user", "/web retrieval augmented generation"),
     ("user", "/recent"),
     ("user", "/digest"),
     ("user", "/stats"),
@@ -43,7 +53,13 @@ SCRIPT = [
 
 async def run():
     store, sender = FakeStore(), FakeSender()
-    brain = Brain(store, sender, fetch_url=fake_fetch_url, get_file=fake_get_file)
+    brain = Brain(
+        store,
+        sender,
+        fetch_url=fake_fetch_url,
+        get_file=fake_get_file,
+        web_lookup_fn=fake_web_lookup,
+    )
     transcript = []
     for step in SCRIPT:
         kind = step[1]
@@ -78,6 +94,10 @@ def check(transcript):
     assert any("Already saved" in t for t in texts), "dedupe reply missing"
     assert any("Forgot #4" in t for t in texts), "forget reply missing"
     assert any("Sources:" in t for t in texts), "cited answer missing"
+    assert any(t.startswith("Not from your notes") for t in texts), "general fallback missing"
+    assert any("query expansion" in t for t in texts), "brainstorm reply missing"
+    assert any(t.startswith("Summary of #1") for t in texts), "summarize reply missing"
+    assert any("From Wikipedia" in t for t in texts), "web lookup reply missing"
     assert any("Last 3 saved items" in t for t in texts), "recent missing"
     assert any("Digest" in t for t in texts), "digest missing"
     assert any("3 item(s)" in t for t in texts), "stats wrong (dedupe or forget broken?)"
