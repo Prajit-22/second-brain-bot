@@ -12,7 +12,8 @@ It is not limited to your notes: when a question is not covered by anything you 
 
 | You send | The bot |
 | --- | --- |
-| plain text | saves it, writes a 2-3 sentence AI summary, indexes it |
+| plain text (a statement, note or idea) | saves it, writes a 2-3 sentence AI summary, indexes it |
+| a question (ends with `?` or starts with who/what/how...) | answers it like `/ask` instead of saving it - forward a question, or add a link, to save it as a note |
 | a link | fetches the page, extracts the text, saves page + your note |
 | a voice note | transcribes it with Whisper, saves the transcript (+ your caption) |
 | the same thing twice | detects the duplicate (sha256) instead of saving again |
@@ -32,7 +33,7 @@ It is not limited to your notes: when a question is not covered by anything you 
 - **D1 (SQLite)** - items, chunks, and an **FTS5** table for the keyword side of the search (`bm25()` ranking).
 - **Vectorize** - 768-dim `@cf/baai/bge-base-en-v1.5` embeddings per chunk for the semantic side.
 - **Workers AI** - Llama 3.1 8B (summaries, answers, digests), bge (embeddings), Whisper (voice transcription). Models are wrangler `[vars]`, so they can be swapped without a code change.
-- **Hybrid retrieval** - both rankings merged with **Reciprocal Rank Fusion** (`src/retrieval.py`), then the top chunks become numbered context for the answer prompt.
+- **Hybrid retrieval + relevance threshold** - both rankings merged with **Reciprocal Rank Fusion** (`src/retrieval.py`), then a final gate keeps only chunks the keyword side actually covers or the vector side scores as similar (both backends return *something* for every query, so ranking alone is not enough - this is what keeps a stray note out of an unrelated answer or brainstorm). The surviving chunks become numbered context for the answer prompt.
 - **Short-term chat memory** (D1 `turns` table) - the last few Q&A exchanges join both the retrieval query and the answer prompt, so follow-ups resolve. Pruned to 20 turns per chat on every write.
 - **Honest fallback** - the answer model replies with a `NO_MATCH` token when the notes do not cover the question, and the bot then answers from general knowledge under a "Not from your notes" label. No fake citations.
 - **Keyless web lookup** - `/web` uses Wikipedia's public opensearch + summary APIs (`src/web_lookup.py`): no API key, no paid service, and the reply always names its source.
@@ -110,7 +111,7 @@ No Cloudflare account needed for the tests or the demo - the bot's logic is plai
 
 ```powershell
 pip install -r requirements-dev.txt
-python -m pytest tests/ -v          # 109 unit tests
+python -m pytest tests/ -v          # 137 unit tests
 python demo/demo_local.py           # end-to-end demo with in-memory fakes
 ```
 
@@ -127,7 +128,7 @@ src/
   prompts.py       system/user prompt builders, incl. the NO_MATCH fallback contract (pure)
   web_lookup.py    keyless Wikipedia lookup: URL building + JSON parsing (pure)
   telegram_api.py  update parsing, commands, auth, message splitting (pure)
-tests/             109 unit tests + in-memory fakes
+tests/             137 unit tests + in-memory fakes
 demo/demo_local.py end-to-end demo harness (prints the simulated chat above)
 schema.sql         D1 schema (items, chunks, FTS5, chat-memory turns)
 wrangler.toml      bindings + model config
@@ -138,7 +139,7 @@ wrangler.toml      bindings + model config
 - **Why hybrid retrieval?** Pure vector search misses exact keywords ("that Ragas metric", an error string); pure BM25 misses paraphrases ("how do I deploy it" vs "shipping steps"). RRF merges both rankings by rank position only, so neither score scale matters - and a chunk found by both ranks highest.
 - **Why D1 FTS5 instead of a second service?** SQLite ships `bm25()` for free, colocated with the metadata, one `schema.sql` to understand.
 - **Why acknowledge the webhook instantly?** Telegram retries slow webhooks, which would double-save notes. `ctx.waitUntil` finishes the AI work after the 200, replies go out via the Bot API.
-- **Why a NO_MATCH token instead of trusting similarity scores?** Vector search always returns *some* nearest chunk, so score thresholds silently misjudge relevance. Letting the model declare "the notes don't cover this" with an exact token makes the fallback deterministic and unit-testable - and the general answer it triggers is always labeled, so it can never be mistaken for something you saved.
+- **Why a relevance threshold *and* a NO_MATCH token?** Vector search always returns *some* nearest chunk and BM25 matches any shared word, so retrieval first applies a hard gate: a chunk enters the context only if the query's content words literally cover it or the vector score clears a bar (`MIN_KEYWORD_RELEVANCE` / `MIN_VECTOR_SCORE` in `src/retrieval.py`). That keeps stray notes out of answers, citations and brainstorms deterministically. The NO_MATCH token is the second layer for what slips through: the model declares "the notes don't cover this" with an exact token, so the labeled general-knowledge fallback can never be mistaken for something you saved.
 - **Why Wikipedia for /web?** It is the only decent lookup that is truly keyless and free at any personal scale, and its summary API returns clean, sourced extracts. Anything bigger (a real search API) would need a paid key, which breaks the $0 design goal.
 - **Why a webhook secret + chat allow-list?** The worker URL is public; `X-Telegram-Bot-Api-Secret-Token` proves the POST came from Telegram, and `ALLOWED_CHAT_IDS` makes the bot answer only you.
-- **Why is everything pure except `entry.py`/`store.py`?** So 109 unit tests and the demo exercise the exact production logic with no Workers runtime - and every line stays explainable.
+- **Why is everything pure except `entry.py`/`store.py`?** So 137 unit tests and the demo exercise the exact production logic with no Workers runtime - and every line stays explainable.
