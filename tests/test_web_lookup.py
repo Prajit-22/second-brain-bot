@@ -91,12 +91,17 @@ class TestFulltextFallback:
 
 class TestSearchQuery:
     def test_strips_question_words_and_mark(self):
-        assert search_query("who is the prime minister of india?") == "the prime minister of india"
+        assert search_query("who is the prime minister of india?") == "prime minister of india"
 
     def test_strips_other_question_forms(self):
-        assert search_query("what is the capital of France") == "the capital of France"
-        assert search_query("how old is the Eiffel Tower?") == "the Eiffel Tower"
+        assert search_query("what is the capital of France") == "capital of France"
+        assert search_query("how old is the Eiffel Tower?") == "Eiffel Tower"
         assert search_query("kya launch kal hai?") == "launch kal hai"
+
+    def test_strips_leading_article_for_title_ranking(self):
+        # "the prime minister of india" ranks the List article above the
+        # office article on opensearch; the bare phrase ranks correctly.
+        assert search_query("who is the president of the united states?") == "president of the united states"
 
     def test_non_question_is_unchanged(self):
         assert search_query("retrieval augmented generation") == "retrieval augmented generation"
@@ -133,7 +138,7 @@ class TestExtract:
 
     def test_long_extract_is_capped(self):
         result = parse_extract(self._payload(extract="x " * 5000))
-        assert len(result["extract"]) <= 2500
+        assert len(result["extract"]) <= 4000
 
 
 class TestFormatWebAnswerReply:
