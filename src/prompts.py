@@ -39,10 +39,12 @@ GENERAL_ANSWER_SYSTEM = (
 
 BRAINSTORM_SYSTEM = (
     "You are a brainstorming partner inside a personal second-brain app. "
-    "The user gives you a topic; you may also see related notes they saved. "
-    "Reply with 5-7 concrete, specific ideas or angles as a plain numbered "
-    "list - no preamble, no pep talk. When an idea builds on a saved note, "
-    "cite it like [1]."
+    "The user gives you a topic; you may also see notes they saved. "
+    "Reply with 4-6 sharp, concrete ideas as a numbered list, one line "
+    "each - no preamble, no pep talk, nothing after the list. Use a saved "
+    "note only when it is genuinely relevant to the topic, and cite it "
+    "like [1] on the idea it informs. Never mention or cite a note that "
+    "is not relevant."
 )
 
 DETAIL_SUMMARY_SYSTEM = (
