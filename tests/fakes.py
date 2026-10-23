@@ -135,6 +135,18 @@ class FakeStore:
         scored.sort(key=lambda kv: (-kv[1], kv[0]))
         return [cid for cid, _ in scored[:limit]]
 
+    async def search_items(self, match_query, limit=10) -> List[Dict]:
+        # Mirror the D1 rollup: chunk hits mapped back to their items,
+        # best-ranked first, one row per item.
+        chunk_ids = await self.fts_search(match_query, limit=100)
+        by_id = {item["id"]: item for item in self.items}
+        seen = []
+        for cid in chunk_ids:
+            item_id = self.chunks[cid]["item_id"]
+            if item_id in by_id and item_id not in seen:
+                seen.append(item_id)
+        return [by_id[i] for i in seen][:limit]
+
     async def vector_search(self, vector, limit=25):
         scored = sorted(
             self.chunks.values(),
