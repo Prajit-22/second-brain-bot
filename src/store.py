@@ -122,6 +122,28 @@ class BrainStore:
         )
         return [row["chunk_id"] for row in rows.get("results", [])]
 
+    async def search_items(self, match_query: str, limit: int = 10) -> List[Dict]:
+        """Item-level keyword search for /search: chunk hits rolled up to the
+        items they belong to (one row per item, best - lowest - bm25 rank
+        first), so the user gets a browsable list of matching saves with the
+        ids /summarize and /forget take - not an AI-written answer."""
+        rows = _py(
+            await self._db.prepare(
+                "SELECT i.id, i.kind, i.title, i.summary, i.created_at,"
+                " MIN(bm25(chunks_fts)) AS best_rank"
+                " FROM chunks_fts"
+                " JOIN chunks c ON c.id = chunks_fts.chunk_id"
+                " JOIN items i ON i.id = c.item_id"
+                " WHERE chunks_fts MATCH ?"
+                " GROUP BY i.id"
+                " ORDER BY best_rank"
+                " LIMIT ?"
+            )
+            .bind(match_query, limit)
+            .all()
+        )
+        return rows.get("results", [])
+
     async def vector_search(self, vector: List[float], limit: int = 25) -> List[tuple]:
         """Nearest neighbours as (chunk id, similarity score) pairs. The
         cosine index scores 0-1; callers apply a relevance threshold instead
