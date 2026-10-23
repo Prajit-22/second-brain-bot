@@ -535,3 +535,58 @@ class TestRelevanceThreshold:
         )
         assert action == "brainstormed"
         assert "Sources:" not in sender.sent[-1][1]
+
+
+class TestSearch:
+    @pytest.mark.asyncio
+    async def test_search_without_words_shows_usage(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/search"))
+        assert action == "search-empty"
+        assert "Usage: /search" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_search_with_only_tiny_words_shows_usage(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/search a i"))
+        assert action == "search-empty"
+
+    @pytest.mark.asyncio
+    async def test_search_lists_matching_items_only(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("RAG retrieval notes: hybrid BM25 plus vector search"))
+        await brain.handle_update(text_update("Grocery list: milk, eggs, coffee beans"))
+        action = await brain.handle_update(text_update("/search retrieval"))
+        assert action == "search-results"
+        reply = sender.sent[-1][1]
+        assert "#1" in reply and "RAG retrieval notes" in reply
+        assert "#2" not in reply
+
+    @pytest.mark.asyncio
+    async def test_search_matches_any_word(self):
+        # OR semantics: a multi-word query finds an item matching one term.
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("Grocery list: milk, eggs, coffee beans"))
+        action = await brain.handle_update(text_update("/search coffee rag"))
+        assert action == "search-results"
+        assert "#1" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_search_without_matches_suggests_next_steps(self):
+        brain, _, sender = make_brain()
+        await brain.handle_update(text_update("Grocery list: milk, eggs, coffee beans"))
+        action = await brain.handle_update(text_update("/search zanzibar"))
+        assert action == "search-no-results"
+        assert "/recent" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_find_alias_behaves_like_search(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("RAG retrieval notes: hybrid BM25 plus vector search"))
+        action = await brain.handle_update(text_update("/find retrieval"))
+        assert action == "search-results"
+        assert "#1" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_help_mentions_search_command(self):
+        assert "/search" in HELP_TEXT
