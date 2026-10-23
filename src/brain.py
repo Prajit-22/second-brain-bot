@@ -37,6 +37,8 @@ HELP_TEXT = (
     "/brainstorm <topic> - fresh ideas that build on what you saved\n"
     "/summarize <id> - a fuller summary of one saved item\n"
     "/web <query> - quick web lookup (via Wikipedia) for things you never saved\n"
+    "/search <words> - list saved items matching keywords; the ids work with\n"
+    "  /summarize and /forget\n"
     "/recent - your last 10 saved items\n"
     "/digest - AI digest of your recent saves\n"
     "/forget <id> - delete a saved item for good\n"
@@ -149,6 +151,8 @@ class Brain:
             return await self._summarize_saved(chat_id, args)
         if name == "web":
             return await self._web(chat_id, args)
+        if name in ("search", "find"):
+            return await self._search_items(chat_id, args)
         if name in ("forget", "delete"):
             return await self._forget(chat_id, args)
         if name == "recent":
@@ -342,6 +346,40 @@ class Brain:
             return "web-no-results"
         await self._send(chat_id, web_lookup.format_web_reply(result))
         return "web-answered"
+
+    async def _search_items(self, chat_id: int, args: str) -> str:
+        """Keyword search over saved items: a browsable list with ids (for
+        /summarize and /forget), as opposed to /ask's AI-written answer."""
+        query = fts_query(args or "")
+        if not query:
+            await self._send(
+                chat_id,
+                "Usage: /search <words> - e.g. /search rag notes",
+            )
+            return "search-empty"
+        items = await self._store.search_items(query)
+        if not items:
+            await self._send(
+                chat_id,
+                "No saved items match that search. /recent lists your latest "
+                "saves; /ask answers a question instead.",
+            )
+            return "search-no-results"
+        lines = [
+            "#{id} [{kind}] {title} ({date})".format(
+                id=it["id"], kind=it["kind"], title=it["title"], date=(it.get("created_at") or "")[:10]
+            )
+            for it in items
+        ]
+        await self._send(
+            chat_id,
+            "{n} saved item(s) matching \"{q}\":\n".format(
+                n=len(items), q=" ".join((args or "").split())
+            )
+            + "\n".join(lines)
+            + "\n\n/summarize <id> for detail, /forget <id> to remove.",
+        )
+        return "search-results"
 
     # ---- browsing your brain -------------------------------------------
 
