@@ -36,6 +36,7 @@ HELP_TEXT = (
     "  get a labeled general answer - so current-fact questions work too\n"
     "/brainstorm <topic> - fresh ideas that build on what you saved\n"
     "/summarize <id> - a fuller summary of one saved item\n"
+    "/get <id> - read a saved note in full, exactly as stored\n"
     "/web <query> - quick web lookup (via Wikipedia) for things you never saved\n"
     "/search <words> - list saved items matching keywords; the ids work with\n"
     "  /summarize and /forget\n"
@@ -153,6 +154,8 @@ class Brain:
             return await self._web(chat_id, args)
         if name in ("search", "find"):
             return await self._search_items(chat_id, args)
+        if name in ("get", "show"):
+            return await self._get_item(chat_id, args)
         if name in ("forget", "delete"):
             return await self._forget(chat_id, args)
         if name == "recent":
@@ -333,6 +336,35 @@ class Brain:
         )
         return "summarized"
 
+    async def _get_item(self, chat_id: int, args: str) -> str:
+        """Print one saved item verbatim - /summarize rewrites with AI, this
+        returns exactly what was stored (Telegram's message limit still
+        applies, so very long pages are truncated)."""
+        try:
+            item_id = int(args.strip())
+        except (ValueError, AttributeError):
+            await self._send(chat_id, "Usage: /get <id> - e.g. /get 3 (ids come from /search or /recent)")
+            return "get-invalid"
+        item = await self._store.get_item(item_id)
+        if not item:
+            await self._send(chat_id, "No item #{id} in your second brain.".format(id=item_id))
+            return "get-missing"
+        content = item["content"]
+        truncated = ""
+        if len(content) > 3500:
+            content = content[:3500].rstrip()
+            truncated = "\n\n... (truncated - {n} characters stored in total)".format(
+                n=len(item["content"])
+            )
+        header = "#{id} [{kind}] {title} ({date})".format(
+            id=item["id"], kind=item["kind"], title=item["title"],
+            date=(item.get("created_at") or "")[:10],
+        )
+        if item.get("url"):
+            header += "\n" + item["url"]
+        await self._send(chat_id, header + "\n\n" + content + truncated)
+        return "get"
+
     async def _web(self, chat_id: int, query: str) -> str:
         if not query:
             await self._send(chat_id, "Usage: /web <query> - e.g. /web retrieval augmented generation")
@@ -377,7 +409,7 @@ class Brain:
                 n=len(items), q=" ".join((args or "").split())
             )
             + "\n".join(lines)
-            + "\n\n/summarize <id> for detail, /forget <id> to remove.",
+            + "\n\n/get <id> to read, /summarize <id> for detail, /forget <id> to remove.",
         )
         return "search-results"
 
