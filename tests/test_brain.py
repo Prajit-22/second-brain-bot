@@ -335,6 +335,60 @@ class TestSummarizeSaved:
         assert "Usage" in sender.sent[-1][1]
 
 
+class TestGet:
+    @pytest.mark.asyncio
+    async def test_get_returns_note_verbatim(self):
+        brain, _, sender = make_brain()
+        note = "RAG notes: hybrid retrieval = BM25 + vectors"
+        await brain.handle_update(text_update(note))
+        action = await brain.handle_update(text_update("/get 1"))
+        assert action == "get"
+        reply = sender.sent[-1][1]
+        assert reply.startswith("#1 [text]")
+        assert note in reply  # the stored words come back, not an AI rewrite
+
+    @pytest.mark.asyncio
+    async def test_get_shows_url_for_links(self):
+        brain, _, sender = make_brain()
+        await brain.handle_update(text_update("great read https://example.com/rag"))
+        action = await brain.handle_update(text_update("/get 1"))
+        assert action == "get"
+        reply = sender.sent[-1][1]
+        assert "https://example.com/rag" in reply
+
+    @pytest.mark.asyncio
+    async def test_get_truncates_very_long_notes(self):
+        brain, _, sender = make_brain()
+        await brain.handle_update(text_update("x" * 4000))
+        action = await brain.handle_update(text_update("/get 1"))
+        assert action == "get"
+        reply = sender.sent[-1][1]
+        assert "truncated" in reply
+        assert "4000 characters" in reply
+
+    @pytest.mark.asyncio
+    async def test_get_unknown_id(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/get 99"))
+        assert action == "get-missing"
+        assert "No item #99" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_get_without_id_shows_usage(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/get"))
+        assert action == "get-invalid"
+        assert "Usage" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_show_alias_and_help_mentions_get(self):
+        assert "/get <id>" in HELP_TEXT
+        brain, _, sender = make_brain()
+        await brain.handle_update(text_update("remember this"))
+        action = await brain.handle_update(text_update("/show 1"))
+        assert action == "get"
+
+
 class TestWeb:
     @pytest.mark.asyncio
     async def test_web_lookup_is_labeled_as_web(self):
