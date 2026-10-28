@@ -215,7 +215,7 @@ class BrainStore:
         return [dict(row) for row in rows.get("results", [])]
 
     async def get_item(self, item_id: int) -> Optional[Dict]:
-        """One saved item with its full content, for /summarize <id>."""
+        """One saved item with its full content, for /summarize and /get."""
         row = _py(
             await self._db.prepare(
                 "SELECT id, kind, title, url, content, summary, created_at"
