@@ -37,6 +37,7 @@ HELP_TEXT = (
     "/brainstorm <topic> - fresh ideas that build on what you saved\n"
     "/summarize <id> - a fuller summary of one saved item\n"
     "/get <id> - read a saved note in full, exactly as stored\n"
+    "/rename <id> <new title> - fix an auto-generated title\n"
     "/web <query> - quick web lookup (via Wikipedia) for things you never saved\n"
     "/search <words> - list saved items matching keywords; the ids work with\n"
     "  /summarize and /forget\n"
@@ -156,6 +157,8 @@ class Brain:
             return await self._search_items(chat_id, args)
         if name in ("get", "show"):
             return await self._get_item(chat_id, args)
+        if name in ("rename", "retitle"):
+            return await self._rename(chat_id, args)
         if name in ("forget", "delete"):
             return await self._forget(chat_id, args)
         if name == "recent":
@@ -364,6 +367,38 @@ class Brain:
             header += "\n" + item["url"]
         await self._send(chat_id, header + "\n\n" + content + truncated)
         return "get"
+
+    async def _rename(self, chat_id: int, args: str) -> str:
+        """Rename a saved item. Auto titles come from the first words of the
+        note, so this is how you fix the ones that came out badly. Content,
+        summary and embeddings stay exactly as they were."""
+        usage = "Usage: /rename <id> <new title> - e.g. /rename 3 deployment checklist"
+        parts = (args or "").split(None, 1)
+        item_id = None
+        if parts:
+            try:
+                item_id = int(parts[0])
+            except ValueError:
+                item_id = None
+        title = " ".join(parts[1].split())[:120].strip() if len(parts) == 2 else ""
+        if item_id is None or not title:
+            await self._send(chat_id, usage)
+            return "rename-invalid"
+        item = await self._store.get_item(item_id)
+        if not item:
+            await self._send(chat_id, "No item #{id} in your second brain.".format(id=item_id))
+            return "rename-missing"
+        renamed = await self._store.rename_item(item_id, title)
+        if not renamed:
+            await self._send(chat_id, "No item #{id} in your second brain.".format(id=item_id))
+            return "rename-missing"
+        await self._send(
+            chat_id,
+            "Renamed #{id}: \"{old}\" -> \"{new}\"".format(
+                id=item_id, old=item["title"], new=renamed["title"]
+            ),
+        )
+        return "renamed"
 
     async def _web(self, chat_id: int, query: str) -> str:
         if not query:
