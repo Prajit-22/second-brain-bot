@@ -251,6 +251,75 @@ class TestForget:
         assert "/forget" in HELP_TEXT
 
 
+class TestRename:
+    @pytest.mark.asyncio
+    async def test_rename_updates_title_and_confirms(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("raw notes about deploying the worker"))
+        old_title = store.items[0]["title"]
+        action = await brain.handle_update(text_update("/rename 1 deployment checklist"))
+        assert action == "renamed"
+        assert store.items[0]["title"] == "deployment checklist"
+        reply = sender.sent[-1][1]
+        assert old_title in reply and "deployment checklist" in reply
+
+    @pytest.mark.asyncio
+    async def test_rename_shows_up_when_reading_the_item(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("raw notes about deploying the worker"))
+        await brain.handle_update(text_update("/rename 1 deployment checklist"))
+        action = await brain.handle_update(text_update("/get 1"))
+        assert action == "get"
+        assert "deployment checklist" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_rename_keeps_content_and_chunks_untouched(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("raw notes about deploying the worker"))
+        content_before = store.items[0]["content"]
+        chunks_before = dict(store.chunks)
+        await brain.handle_update(text_update("/rename 1 better title"))
+        assert store.items[0]["content"] == content_before
+        assert store.chunks == chunks_before
+
+    @pytest.mark.asyncio
+    async def test_rename_alias_retitle(self):
+        brain, store, _ = make_brain()
+        await brain.handle_update(text_update("raw notes about deploying the worker"))
+        action = await brain.handle_update(text_update("/retitle 1 aliased title"))
+        assert action == "renamed"
+        assert store.items[0]["title"] == "aliased title"
+
+    @pytest.mark.asyncio
+    async def test_rename_usage_errors(self):
+        brain, _, sender = make_brain()
+        for text in ("/rename", "/rename abc new title", "/rename 1", "/rename 1    "):
+            action = await brain.handle_update(text_update(text))
+            assert action == "rename-invalid", text
+            assert "Usage" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_rename_unknown_id(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/rename 99 anything"))
+        assert action == "rename-missing"
+        assert "No item #99" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_rename_collapses_whitespace_and_caps_length(self):
+        brain, store, _ = make_brain()
+        await brain.handle_update(text_update("raw notes about deploying the worker"))
+        await brain.handle_update(text_update("/rename 1  spaced     out   title "))
+        assert store.items[0]["title"] == "spaced out title"
+        long_title = "x" * 200
+        await brain.handle_update(text_update("/rename 1 " + long_title))
+        assert store.items[0]["title"] == "x" * 120
+
+    @pytest.mark.asyncio
+    async def test_help_mentions_rename(self):
+        assert "/rename" in HELP_TEXT
+
+
 class TestBrowse:
     @pytest.mark.asyncio
     async def test_recent_empty(self):
