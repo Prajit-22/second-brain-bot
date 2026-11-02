@@ -176,9 +176,19 @@ class FakeStore:
         return None
 
     async def get_item(self, item_id):
+        # A snapshot, not the live dict - the real store's dict(row) detaches
+        # from the table row too, so a later UPDATE does not rewrite the copy
+        # a caller already holds.
         for item in self.items:
             if item["id"] == item_id:
-                return item
+                return dict(item)
+        return None
+
+    async def rename_item(self, item_id, title):
+        for item in self.items:
+            if item["id"] == item_id:
+                item["title"] = title
+                return {"id": item_id, "title": title}
         return None
 
     async def add_turn(self, chat_id, role, text, keep=20):
