@@ -226,6 +226,19 @@ class BrainStore:
         )
         return dict(row) if row else None
 
+    async def rename_item(self, item_id: int, title: str) -> Optional[Dict]:
+        """Change a saved item's title, for /rename. Chunks, FTS rows and
+        vectors are untouched - only the label changes. Returns the updated
+        {id, title}, or None when no such item exists."""
+        row = _py(
+            await self._db.prepare(
+                "UPDATE items SET title = ? WHERE id = ? RETURNING id, title"
+            )
+            .bind(title, item_id)
+            .first()
+        )
+        return dict(row) if row else None
+
     # ---- D1: conversation turns (short-term chat memory) -----------------
 
     async def add_turn(self, chat_id: int, role: str, text: str, keep: int = 20) -> None:
