@@ -23,6 +23,7 @@ It is not limited to your notes: when a question is not covered by anything you 
 | `/summarize <id>` | a fuller, structured summary of one saved item |
 | `/get <id>` (`/show`) | read a saved note in full, exactly as stored (very long pages truncated to fit Telegram) |
 | `/rename <id> <new title>` (`/retitle`) | fix a bad auto-generated title; content, summary and embeddings stay untouched |
+| `/edit <id> <new text>` | replace a note's content and re-index it - summary, chunks and embeddings are rebuilt, title and url stay; refuses when the new text duplicates another saved item |
 | `/web <query>` | keyless web lookup (Wikipedia summary), labeled as web - never confused with your notes |
 | `/search <words>` (`/find`) | list saved items matching keywords, with ids for `/summarize` and `/forget` |
 | `/recent` `/digest` `/stats` | browse, get an AI digest, see counts |
@@ -114,7 +115,7 @@ No Cloudflare account needed for the tests or the demo - the bot's logic is plai
 
 ```powershell
 pip install -r requirements-dev.txt
-python -m pytest tests/ -v          # 175 unit tests
+python -m pytest tests/ -v          # 183 unit tests
 python demo/demo_local.py           # end-to-end demo with in-memory fakes
 ```
 
@@ -131,7 +132,7 @@ src/
   prompts.py       system/user prompt builders, incl. the NO_MATCH fallback contract (pure)
   web_lookup.py    keyless Wikipedia lookup: URL building + JSON parsing (pure)
   telegram_api.py  update parsing, commands, auth, message splitting (pure)
-tests/             175 unit tests + in-memory fakes
+tests/             183 unit tests + in-memory fakes
 demo/demo_local.py end-to-end demo harness (prints the simulated chat above)
 schema.sql         D1 schema (items, chunks, FTS5, chat-memory turns)
 wrangler.toml      bindings + model config
@@ -145,4 +146,4 @@ wrangler.toml      bindings + model config
 - **Why a relevance threshold *and* a NO_MATCH token?** Vector search always returns *some* nearest chunk and BM25 matches any shared word, so retrieval first applies a hard gate: a chunk enters the context only if the query's content words literally cover it or the vector score clears a bar (`MIN_KEYWORD_RELEVANCE` / `MIN_VECTOR_SCORE` in `src/retrieval.py`). That keeps stray notes out of answers, citations and brainstorms deterministically. The NO_MATCH token is the second layer for what slips through: the model declares "the notes don't cover this" with an exact token, so the labeled general-knowledge fallback can never be mistaken for something you saved.
 - **Why Wikipedia for /web?** It is the only decent lookup that is truly keyless and free at any personal scale, and its summary API returns clean, sourced extracts. Anything bigger (a real search API) would need a paid key, which breaks the $0 design goal.
 - **Why a webhook secret + chat allow-list?** The worker URL is public; `X-Telegram-Bot-Api-Secret-Token` proves the POST came from Telegram, and `ALLOWED_CHAT_IDS` makes the bot answer only you.
-- **Why is everything pure except `entry.py`/`store.py`?** So 175 unit tests and the demo exercise the exact production logic with no Workers runtime - and every line stays explainable.
+- **Why is everything pure except `entry.py`/`store.py`?** So 183 unit tests and the demo exercise the exact production logic with no Workers runtime - and every line stays explainable.
