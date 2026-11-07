@@ -184,6 +184,19 @@ class FakeStore:
                 return dict(item)
         return None
 
+    async def replace_item_content(self, item_id, content, summary, digest, chunks, vectors):
+        for item in self.items:
+            if item["id"] == item_id:
+                item["content"] = content
+                item["summary"] = summary
+                item["content_hash"] = digest
+                doomed = [cid for cid, c in self.chunks.items() if c["item_id"] == item_id]
+                for cid in doomed:
+                    del self.chunks[cid]
+                ids = await self.add_chunks(item_id, chunks, vectors)
+                return {"id": item_id, "title": item["title"], "chunks": len(ids)}
+        return None
+
     async def rename_item(self, item_id, title):
         for item in self.items:
             if item["id"] == item_id:
