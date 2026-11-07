@@ -713,3 +713,81 @@ class TestSearch:
     @pytest.mark.asyncio
     async def test_help_mentions_search_command(self):
         assert "/search" in HELP_TEXT
+class TestEdit:
+    @pytest.mark.asyncio
+    async def test_edit_replaces_content_and_confirms(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("raw notes about deploying the worker"))
+        title = store.items[0]["title"]
+        action = await brain.handle_update(
+            text_update("/edit 1 deploy: migrate the database first, then restart the workers"))
+        assert action == "edited"
+        assert store.items[0]["content"] == "deploy: migrate the database first, then restart the workers"
+        assert store.items[0]["title"] == title  # title untouched
+        reply = sender.sent[-1][1]
+        assert "Updated #1" in reply and title in reply
+
+    @pytest.mark.asyncio
+    async def test_edit_reindex_search_and_read(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("raw notes about deploying the worker"))
+        await brain.handle_update(text_update("/edit 1 kubernetes rollout runbook"))
+        # The old text no longer matches search; the new text does.
+        await brain.handle_update(text_update("/search deploying"))
+        assert "no saved items match" in sender.sent[-1][1].lower()
+        await brain.handle_update(text_update("/search kubernetes"))
+        assert "#1" in sender.sent[-1][1]
+        # /get reads back the edited content.
+        await brain.handle_update(text_update("/get 1"))
+        assert "kubernetes rollout runbook" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_edit_rebuilds_summary_hash_and_chunks(self):
+        brain, store, _ = make_brain()
+        await brain.handle_update(text_update("short note about workers"))
+        old_summary = store.items[0]["summary"]
+        old_hash = store.items[0]["content_hash"]
+        await brain.handle_update(text_update("/edit 1 a completely rewritten longer note about queues"))
+        item = store.items[0]
+        assert item["summary"] != old_summary
+        assert item["content_hash"] != old_hash
+        # The index now holds the edited text, not the original note.
+        chunk_texts = " ".join(c["text"] for c in store.chunks.values())
+        assert "queues" in chunk_texts
+        assert "workers" not in chunk_texts
+
+    @pytest.mark.asyncio
+    async def test_edit_duplicate_of_another_item_is_refused(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("first note about alpha"))
+        await brain.handle_update(text_update("second note about beta"))
+        action = await brain.handle_update(text_update("/edit 2 first note about alpha"))
+        assert action == "edit-duplicate"
+        assert "already saved as #1" in sender.sent[-1][1]
+        assert store.items[1]["content"] == "second note about beta"  # unchanged
+
+    @pytest.mark.asyncio
+    async def test_edit_same_text_is_allowed(self):
+        brain, store, _ = make_brain()
+        await brain.handle_update(text_update("first note about alpha"))
+        action = await brain.handle_update(text_update("/edit 1 first note about alpha"))
+        assert action == "edited"
+
+    @pytest.mark.asyncio
+    async def test_edit_missing_item(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/edit 99 nothing here"))
+        assert action == "edit-missing"
+        assert "No item #99" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_edit_usage_errors(self):
+        brain, _, sender = make_brain()
+        for text in ("/edit", "/edit abc new text", "/edit 1", "/edit 1    "):
+            action = await brain.handle_update(text_update(text))
+            assert action == "edit-invalid", text
+            assert "Usage" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_help_mentions_edit(self):
+        assert "/edit" in HELP_TEXT
