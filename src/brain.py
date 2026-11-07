@@ -38,6 +38,7 @@ HELP_TEXT = (
     "/summarize <id> - a fuller summary of one saved item\n"
     "/get <id> - read a saved note in full, exactly as stored\n"
     "/rename <id> <new title> - fix an auto-generated title\n"
+    "/edit <id> <new text> - replace a note's content and re-index it\n"
     "/web <query> - quick web lookup (via Wikipedia) for things you never saved\n"
     "/search <words> - list saved items matching keywords; the ids work with\n"
     "  /summarize and /forget\n"
@@ -159,6 +160,8 @@ class Brain:
             return await self._get_item(chat_id, args)
         if name in ("rename", "retitle"):
             return await self._rename(chat_id, args)
+        if name == "edit":
+            return await self._edit(chat_id, args)
         if name in ("forget", "delete"):
             return await self._forget(chat_id, args)
         if name == "recent":
@@ -399,6 +402,51 @@ class Brain:
             ),
         )
         return "renamed"
+
+    async def _edit(self, chat_id: int, args: str) -> str:
+        """Replace a saved item's content and re-index it - the fix for a
+        note that went in wrong or has changed since. Title and url stay;
+        the summary, hash, chunks and embeddings are rebuilt from the new
+        text, so search, /ask and /digest all see the edited version."""
+        usage = "Usage: /edit <id> <new text> - e.g. /edit 3 deploy: migrate first, then restart workers"
+        parts = (args or "").split(None, 1)
+        item_id = None
+        if parts:
+            try:
+                item_id = int(parts[0])
+            except ValueError:
+                item_id = None
+        new_text = parts[1].strip() if len(parts) == 2 else ""
+        if item_id is None or not new_text:
+            await self._send(chat_id, usage)
+            return "edit-invalid"
+        item = await self._store.get_item(item_id)
+        if not item:
+            await self._send(chat_id, "No item #{id} in your second brain.".format(id=item_id))
+            return "edit-missing"
+        digest = content_hash(new_text)
+        existing = await self._store.find_item_by_hash(digest)
+        if existing and existing["id"] != item_id:
+            await self._send(
+                chat_id,
+                "That text is already saved as #{id}: {title} - edit not applied.".format(
+                    id=existing["id"], title=existing["title"]),
+            )
+            return "edit-duplicate"
+        summary = (await self._store.summarize(new_text)).strip()
+        chunks = chunk_text(new_text)
+        vectors = await self._store.embed(chunks)
+        replaced = await self._store.replace_item_content(
+            item_id, new_text, summary, digest, chunks, vectors)
+        if not replaced:
+            await self._send(chat_id, "No item #{id} in your second brain.".format(id=item_id))
+            return "edit-missing"
+        await self._send(
+            chat_id,
+            "Updated #{id}: {title} ({n} chunks re-indexed)".format(
+                id=item_id, title=replaced["title"], n=replaced["chunks"]),
+        )
+        return "edited"
 
     async def _web(self, chat_id: int, query: str) -> str:
         if not query:
