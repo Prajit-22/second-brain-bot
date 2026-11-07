@@ -181,20 +181,49 @@ class BrainStore:
         )
         if not item:
             return None
+        chunk_ids = await self._drop_chunks(item_id)
+        await self._db.batch([self._db.prepare("DELETE FROM items WHERE id = ?").bind(item_id)])
+        return {"id": item["id"], "title": item["title"], "chunks_removed": len(chunk_ids)}
+
+    async def _drop_chunks(self, item_id: int) -> List[str]:
+        """Delete an item's chunks everywhere they live (D1, the FTS index
+        and Vectorize) and return their ids. Shared by delete_item and
+        replace_item_content."""
         rows = _py(
             await self._db.prepare("SELECT id FROM chunks WHERE item_id = ?").bind(item_id).all()
         )
         chunk_ids = [row["id"] for row in rows.get("results", [])]
-        statements = [
-            self._db.prepare("DELETE FROM chunks_fts WHERE chunk_id = ?").bind(cid)
-            for cid in chunk_ids
-        ]
-        statements.append(self._db.prepare("DELETE FROM chunks WHERE item_id = ?").bind(item_id))
-        statements.append(self._db.prepare("DELETE FROM items WHERE id = ?").bind(item_id))
-        await self._db.batch(statements)
         if chunk_ids:
+            statements = [
+                self._db.prepare("DELETE FROM chunks_fts WHERE chunk_id = ?").bind(cid)
+                for cid in chunk_ids
+            ]
+            statements.append(self._db.prepare("DELETE FROM chunks WHERE item_id = ?").bind(item_id))
+            await self._db.batch(statements)
             await self._vectorize.deleteByIds(chunk_ids)
-        return {"id": item["id"], "title": item["title"], "chunks_removed": len(chunk_ids)}
+        return chunk_ids
+
+    async def replace_item_content(self, item_id: int, content: str, summary: str,
+                                   digest: str, chunks: List[str],
+                                   vectors: List[List[float]]) -> Optional[Dict]:
+        """Replace an item's content and re-index it, for /edit: the row gets
+        the new text, summary and hash, the old chunks/FTS rows/vectors are
+        dropped, and the fresh chunks take their place. Title, url, kind and
+        created_at stay. Returns {id, title, chunks}, or None when no such
+        item exists."""
+        item = _py(
+            await self._db.prepare("SELECT id, title FROM items WHERE id = ?").bind(item_id).first()
+        )
+        if not item:
+            return None
+        await self._drop_chunks(item_id)
+        await self._db.batch([
+            self._db.prepare(
+                "UPDATE items SET content = ?, summary = ?, content_hash = ? WHERE id = ?"
+            ).bind(content, summary, digest, item_id)
+        ])
+        chunk_ids = await self.add_chunks(item_id, chunks, vectors)
+        return {"id": item["id"], "title": item["title"], "chunks": len(chunk_ids)}
 
     async def recent_items(self, limit: int = 10) -> List[Dict]:
         rows = _py(
