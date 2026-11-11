@@ -44,6 +44,14 @@ It is not limited to your notes: when a question is not covered by anything you 
 
 Everything is Python: one language from webhook to retrieval to prompts.
 
+## Also available as an Agent Skill
+
+The retrieval core of this bot is packaged as a portable Agent Skill (SKILL.md)
+in [`skill/second-brain/`](skill/second-brain/) - a dependency-free local
+second brain (save / retrieve / get / forget over one SQLite file, with the
+same hybrid retrieval + relevance gate) that any SKILL.md-compatible agent can
+load. `python3 skill/second-brain/scripts/selftest.py` verifies it end to end.
+
 ## Deploy your own (Windows)
 
 You need: a Cloudflare account (free), a Telegram account, Node.js LTS and [uv](https://docs.astral.sh/uv/) installed. All commands below are PowerShell.
