@@ -243,6 +243,15 @@ class BrainStore:
         )
         return [dict(row) for row in rows.get("results", [])]
 
+    async def export_items(self) -> List[Dict]:
+        rows = _py(
+            await self._db.prepare(
+                "SELECT id, kind, title, url, summary, created_at FROM items ORDER BY id"
+            )
+            .all()
+        )
+        return [dict(row) for row in rows.get("results", [])]
+
     async def get_item(self, item_id: int) -> Optional[Dict]:
         """One saved item with its full content, for /summarize and /get."""
         row = _py(
