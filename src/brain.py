@@ -46,6 +46,7 @@ HELP_TEXT = (
     "/digest - AI digest of your recent saves\n"
     "/forget <id> - delete a saved item for good\n"
     "/stats - how much you have saved\n"
+    "/export - everything you saved as one text dump\n"
     "/help - this message"
 )
 
@@ -162,6 +163,8 @@ class Brain:
             return await self._rename(chat_id, args)
         if name == "edit":
             return await self._edit(chat_id, args)
+        if name in ("export", "backup"):
+            return await self._export(chat_id)
         if name in ("forget", "delete"):
             return await self._forget(chat_id, args)
         if name == "recent":
@@ -515,6 +518,33 @@ class Brain:
             ),
         )
         return "forgot"
+
+    async def _export(self, chat_id: int) -> str:
+        """Dump every saved item as one readable archive, oldest first. Long
+        exports are split into Telegram-sized messages by _send."""
+        items = await self._store.export_items()
+        if not items:
+            await self._send(chat_id, "Nothing saved yet - forward me a note or a link!")
+            return "export-empty"
+        blocks = []
+        for it in items:
+            block = "#{id} [{kind}] {title} ({date})".format(
+                id=it["id"],
+                kind=it["kind"],
+                title=it["title"],
+                date=(it.get("created_at") or "")[:10],
+            )
+            if it.get("url"):
+                block += "\n" + it["url"]
+            if it.get("summary"):
+                block += "\n" + it["summary"]
+            blocks.append(block)
+        await self._send(
+            chat_id,
+            "Your second brain export - {n} item(s), oldest first:\n\n".format(n=len(items))
+            + "\n\n".join(blocks),
+        )
+        return "export"
 
     async def _recent(self, chat_id: int, limit: int = 10) -> str:
         items = await self._store.recent_items(limit)
