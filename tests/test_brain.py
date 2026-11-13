@@ -791,3 +791,48 @@ class TestEdit:
     @pytest.mark.asyncio
     async def test_help_mentions_edit(self):
         assert "/edit" in HELP_TEXT
+
+
+class TestExport:
+    @pytest.mark.asyncio
+    async def test_export_empty_brain(self):
+        brain, _, sender = make_brain()
+        action = await brain.handle_update(text_update("/export"))
+        assert action == "export-empty"
+        assert "Nothing saved yet" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_export_lists_every_item_oldest_first(self):
+        brain, _, sender = make_brain()
+        await brain.handle_update(text_update("Grocery list: milk, eggs, coffee beans"))
+        await brain.handle_update(text_update("RAG retrieval notes: hybrid BM25 plus vector search"))
+        action = await brain.handle_update(text_update("/export"))
+        assert action == "export"
+        reply = sender.sent[-1][1]
+        assert "2 item(s)" in reply
+        assert "#1" in reply and "#2" in reply
+        assert reply.index("#1") < reply.index("#2")
+        assert "[text]" in reply
+
+    @pytest.mark.asyncio
+    async def test_export_includes_link_url_and_summary(self):
+        brain, _, sender = make_brain()
+        await brain.handle_update(text_update("great read https://example.com/rag"))
+        action = await brain.handle_update(text_update("/export"))
+        assert action == "export"
+        reply = sender.sent[-1][1]
+        assert "[link]" in reply
+        assert "https://example.com/rag" in reply
+        assert "Summary:" in reply
+
+    @pytest.mark.asyncio
+    async def test_backup_alias_behaves_like_export(self):
+        brain, _, sender = make_brain()
+        await brain.handle_update(text_update("Grocery list: milk, eggs, coffee beans"))
+        action = await brain.handle_update(text_update("/backup"))
+        assert action == "export"
+        assert "#1" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_help_mentions_export_command(self):
+        assert "/export" in HELP_TEXT
