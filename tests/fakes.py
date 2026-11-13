@@ -220,6 +220,19 @@ class FakeStore:
     async def item_summaries(self, limit=10):
         return [{"title": i["title"], "summary": i["summary"]} for i in reversed(self.items[:limit])]
 
+    async def export_items(self):
+        return [
+            {
+                "id": i["id"],
+                "kind": i["kind"],
+                "title": i["title"],
+                "url": i["url"],
+                "summary": i["summary"],
+                "created_at": i["created_at"],
+            }
+            for i in self.items
+        ]
+
     async def stats(self):
         return {"items": len(self.items), "chunks": len(self.chunks)}
 
