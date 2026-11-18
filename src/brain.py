@@ -13,6 +13,7 @@ from typing import Awaitable, Callable, Dict, List, Optional, Sequence, Set, Tup
 import prompts
 import web_lookup
 from retrieval import (
+    MIN_VECTOR_SCORE,
     chunk_text,
     content_hash,
     filter_relevant,
@@ -39,6 +40,7 @@ HELP_TEXT = (
     "/get <id> - read a saved note in full, exactly as stored\n"
     "/rename <id> <new title> - fix an auto-generated title\n"
     "/edit <id> <new text> - replace a note's content and re-index it\n"
+    "/related <id> - find saved items similar to one\n"
     "/web <query> - quick web lookup (via Wikipedia) for things you never saved\n"
     "/search <words> - list saved items matching keywords; the ids work with\n"
     "  /summarize and /forget\n"
@@ -159,6 +161,8 @@ class Brain:
             return await self._search_items(chat_id, args)
         if name in ("get", "show"):
             return await self._get_item(chat_id, args)
+        if name in ("related", "similar"):
+            return await self._related(chat_id, args)
         if name in ("rename", "retitle"):
             return await self._rename(chat_id, args)
         if name == "edit":
@@ -578,3 +582,64 @@ class Brain:
             ),
         )
         return "stats"
+
+    async def _related(self, chat_id: int, args: str) -> str:
+        """Find saved items similar to one item, by embedding similarity.
+        The item is embedded from its title + summary (its most distilled
+        text, falling back to the content head); every other item is
+        ranked by its closest chunk, gated by the same vector threshold
+        retrieval uses, so a weak neighbour does not show up as "related".
+        Handy for rediscovering a note you forgot you saved."""
+        usage = "Usage: /related <id> - e.g. /related 3"
+        try:
+            item_id = int((args or "").strip())
+        except ValueError:
+            item_id = None
+        if item_id is None:
+            await self._send(chat_id, usage)
+            return "related-invalid"
+        item = await self._store.get_item(item_id)
+        if not item:
+            await self._send(
+                chat_id, "No item #{id} in your second brain.".format(id=item_id)
+            )
+            return "related-missing"
+        basis = " ".join(
+            part
+            for part in (item.get("title", ""), item.get("summary", ""))
+            if part
+        ) or item.get("content", "")[:500]
+        vector = (await self._store.embed([basis]))[0]
+        scores = dict(await self._store.vector_search(vector, limit=40))
+        chunks = await self._store.get_chunks(list(scores))
+        best = {}
+        for chunk in chunks:
+            other = chunk.get("item_id")
+            score = scores.get(chunk["id"], 0.0)
+            if other is None or other == item_id or score < MIN_VECTOR_SCORE:
+                continue
+            if other not in best or score > best[other]["score"]:
+                best[other] = {"title": chunk.get("title", ""), "score": score}
+        if not best:
+            await self._send(
+                chat_id,
+                "Nothing similar to #{id} yet - save a few more notes.".format(
+                    id=item_id
+                ),
+            )
+            return "related-empty"
+        top = sorted(best.items(), key=lambda kv: (-kv[1]["score"], kv[0]))[:5]
+        lines = [
+            "#{id} {title} ({pct}% match)".format(
+                id=other, title=row["title"], pct=int(round(row["score"] * 100))
+            )
+            for other, row in top
+        ]
+        await self._send(
+            chat_id,
+            "Saved items related to #{id} \"{title}\":\n".format(
+                id=item_id, title=item["title"]
+            )
+            + "\n".join(lines),
+        )
+        return "related"
