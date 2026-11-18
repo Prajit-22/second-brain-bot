@@ -836,3 +836,70 @@ class TestExport:
     @pytest.mark.asyncio
     async def test_help_mentions_export_command(self):
         assert "/export" in HELP_TEXT
+
+class TestRelated:
+    @pytest.mark.asyncio
+    async def test_related_finds_similar_items_excluding_self(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update(
+            "deploy checklist: migrate the database first, then restart the workers"))
+        await brain.handle_update(text_update(
+            "deploy checklist: migrate the database, restart the workers, check the logs"))
+        await brain.handle_update(text_update(
+            "pasta recipe: tomatoes, basil, garlic, olive oil"))
+        action = await brain.handle_update(text_update("/related 1"))
+        assert action == "related"
+        reply = sender.sent[-1][1]
+        assert "related to #1" in reply
+        assert "#2" in reply and "restart the" in reply
+        assert "#3" not in reply  # the disjoint pasta note stays out
+        assert '"#1 ' not in reply  # the item itself is never its own match
+
+    @pytest.mark.asyncio
+    async def test_related_reports_match_percentage(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update(
+            "deploy checklist: migrate the database first, then restart the workers"))
+        await brain.handle_update(text_update(
+            "deploy checklist: migrate the database, restart the workers, check the logs"))
+        await brain.handle_update(text_update("/related 1"))
+        assert "% match" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_related_unknown_item(self):
+        brain, store, sender = make_brain()
+        action = await brain.handle_update(text_update("/related 99"))
+        assert action == "related-missing"
+        assert "No item #99" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_related_invalid_usage(self):
+        brain, store, sender = make_brain()
+        action = await brain.handle_update(text_update("/related banana"))
+        assert action == "related-invalid"
+        assert "Usage: /related" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_related_nothing_similar(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update(
+            "deploy checklist: migrate the database first, then restart the workers"))
+        await brain.handle_update(text_update(
+            "pasta recipe: tomatoes, basil, garlic, olive oil"))
+        action = await brain.handle_update(text_update("/related 1"))
+        assert action == "related-empty"
+        assert "Nothing similar" in sender.sent[-1][1]
+
+    @pytest.mark.asyncio
+    async def test_similar_alias_behaves_like_related(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update(
+            "deploy checklist: migrate the database first, then restart the workers"))
+        action = await brain.handle_update(text_update("/similar 1"))
+        assert action in ("related", "related-empty")
+
+    @pytest.mark.asyncio
+    async def test_help_mentions_related_command(self):
+        brain, _, sender = make_brain()
+        await brain.handle_update(text_update("/help"))
+        assert "/related" in sender.sent[0][1]
