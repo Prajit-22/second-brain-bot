@@ -155,14 +155,15 @@ class BrainStore:
         ]
 
     async def get_chunks(self, chunk_ids: List[str]) -> List[Dict[str, str]]:
-        """Hydrate chunk ids with text + owning item title/url, preserving the
-        caller's ranking order."""
+        """Hydrate chunk ids with text + owning item id/title/url, preserving
+        the caller's ranking order."""
         if not chunk_ids:
             return []
         placeholders = ", ".join("?" for _ in chunk_ids)
         rows = _py(
             await self._db.prepare(
-                "SELECT c.id AS id, c.text AS text, i.title AS title, i.url AS url"
+                "SELECT c.id AS id, c.text AS text, i.id AS item_id,"
+                " i.title AS title, i.url AS url"
                 " FROM chunks c JOIN items i ON i.id = c.item_id"
                 " WHERE c.id IN ({placeholders})".format(placeholders=placeholders)
             )
