@@ -162,7 +162,8 @@ class FakeStore:
         for cid in chunk_ids:
             chunk = self.chunks[cid]
             item = self.items[chunk["item_id"] - 1]
-            out.append({"id": cid, "text": chunk["text"], "title": item["title"], "url": item["url"]})
+            out.append({"id": cid, "text": chunk["text"], "item_id": chunk["item_id"],
+                        "title": item["title"], "url": item["url"]})
         return out
 
     async def delete_item(self, item_id):
