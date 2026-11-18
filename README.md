@@ -130,7 +130,7 @@ python -m pytest tests/ -v          # 195 unit tests
 python demo/demo_local.py           # end-to-end demo with in-memory fakes
 ```
 
-`demo/demo_local.py` drives the **real** Brain + retrieval + prompts code path against in-memory fakes of D1/Vectorize/Workers AI - the same fakes the unit tests use. CI (`.github/workflows/ci.yml`) runs both on Python 3.9-3.12.
+`demo/demo_local.py` drives the **real** Brain + retrieval + prompts code path against in-memory fakes of D1/Vectorize/Workers AI - the same fakes the unit tests use. CI (`.github/workflows/ci.yml`) runs both on Python 3.12 and 3.13, the versions `pyproject.toml` declares (`requires-python >= 3.12`).
 
 ## Project layout
 
