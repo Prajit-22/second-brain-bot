@@ -235,7 +235,17 @@ class FakeStore:
         ]
 
     async def stats(self):
-        return {"items": len(self.items), "chunks": len(self.chunks)}
+        by_kind = {}
+        for item in self.items:
+            by_kind[item["kind"]] = by_kind.get(item["kind"], 0) + 1
+        dates = sorted(i["created_at"] for i in self.items if i.get("created_at"))
+        return {
+            "items": len(self.items),
+            "chunks": len(self.chunks),
+            "by_kind": by_kind,
+            "first_save": dates[0] if dates else None,
+            "latest_save": dates[-1] if dates else None,
+        }
 
 
 class FakeSender:
