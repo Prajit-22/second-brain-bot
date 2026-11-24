@@ -47,7 +47,7 @@ HELP_TEXT = (
     "/recent - your last 10 saved items\n"
     "/digest - AI digest of your recent saves\n"
     "/forget <id> - delete a saved item for good\n"
-    "/stats - how much you have saved\n"
+    "/stats - how much you have saved, by kind, and since when\n"
     "/export - everything you saved as one text dump\n"
     "/help - this message"
 )
@@ -574,13 +574,32 @@ class Brain:
         return "digest"
 
     async def _stats(self, chat_id: int) -> str:
+        """Counts plus a by-kind breakdown and the save span, so /stats
+        answers 'how much have I saved, of what, and since when'."""
         stats = await self._store.stats()
-        await self._send(
-            chat_id,
+        lines = [
             "Your second brain holds {items} item(s) and {chunks} indexed chunk(s).".format(
                 items=stats["items"], chunks=stats["chunks"]
-            ),
-        )
+            )
+        ]
+        by_kind = stats.get("by_kind") or {}
+        if by_kind:
+            lines.append(
+                "By kind: "
+                + ", ".join(
+                    "{n} {kind}".format(n=n, kind=kind)
+                    for kind, n in by_kind.items()
+                )
+                + "."
+            )
+        first, latest = stats.get("first_save"), stats.get("latest_save")
+        if first and latest:
+            lines.append(
+                "First save {first}, latest {latest}.".format(
+                    first=str(first)[:10], latest=str(latest)[:10]
+                )
+            )
+        await self._send(chat_id, "\n".join(lines))
         return "stats"
 
     async def _related(self, chat_id: int, args: str) -> str:
