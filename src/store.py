@@ -307,7 +307,19 @@ class BrainStore:
         )
         return [dict(row) for row in reversed(rows.get("results", []))]
 
-    async def stats(self) -> Dict[str, int]:
+    async def stats(self) -> Dict:
         items = _py(await self._db.prepare("SELECT COUNT(*) AS n FROM items").first())
         chunks = _py(await self._db.prepare("SELECT COUNT(*) AS n FROM chunks").first())
-        return {"items": int(items["n"]), "chunks": int(chunks["n"])}
+        kind_rows = _py(await self._db.prepare(
+            "SELECT kind, COUNT(*) AS n FROM items GROUP BY kind ORDER BY n DESC, kind"
+        ).all())
+        span = _py(await self._db.prepare(
+            "SELECT MIN(created_at) AS first, MAX(created_at) AS last FROM items"
+        ).first())
+        return {
+            "items": int(items["n"]),
+            "chunks": int(chunks["n"]),
+            "by_kind": {row["kind"]: int(row["n"]) for row in kind_rows.get("results", [])},
+            "first_save": span["first"],
+            "latest_save": span["last"],
+        }
