@@ -345,6 +345,35 @@ class TestBrowse:
         assert "2 item(s)" in sender.sent[-1][1]
 
     @pytest.mark.asyncio
+    async def test_stats_shows_kind_breakdown(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("a text note"))
+        await brain.handle_update(text_update("another text note"))
+        await brain.handle_update(text_update("/stats"))
+        reply = sender.sent[-1][1]
+        assert "By kind:" in reply
+        assert "2 text" in reply
+
+    @pytest.mark.asyncio
+    async def test_stats_shows_save_span(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("something"))
+        await brain.handle_update(text_update("/stats"))
+        reply = sender.sent[-1][1]
+        # FakeStore stamps 2026-10-21 on every save.
+        assert "First save 2026-10-21" in reply
+        assert "latest 2026-10-21" in reply
+
+    @pytest.mark.asyncio
+    async def test_stats_empty_store_has_no_breakdown(self):
+        brain, store, sender = make_brain()
+        await brain.handle_update(text_update("/stats"))
+        reply = sender.sent[-1][1]
+        assert "0 item(s)" in reply
+        assert "By kind:" not in reply
+        assert "First save" not in reply
+
+    @pytest.mark.asyncio
     async def test_digest(self):
         brain, store, sender = make_brain()
         await brain.handle_update(text_update("cloudflare notes"))
